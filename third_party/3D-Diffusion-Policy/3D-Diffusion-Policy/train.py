@@ -102,6 +102,7 @@ class TrainDP3Workspace:
 
         # configure dataset
         dataset: BaseDataset
+        print(cfg.task.dataset)
         dataset = hydra.utils.instantiate(cfg.task.dataset)
 
         assert isinstance(dataset, BaseDataset), print(f"dataset must be BaseDataset, got {type(dataset)}")
@@ -145,22 +146,23 @@ class TrainDP3Workspace:
         if env_runner is not None:
             assert isinstance(env_runner, BaseRunner)
         
-        cfg.logging.name = str(cfg.logging.name)
-        cprint("-----------------------------", "yellow")
-        cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
-        cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
-        cprint("-----------------------------", "yellow")
-        # configure logging
-        wandb_run = wandb.init(
-            dir=str(self.output_dir),
-            config=OmegaConf.to_container(cfg, resolve=True),
-            **cfg.logging
-        )
-        wandb.config.update(
-            {
-                "output_dir": self.output_dir,
-            }
-        )
+        if cfg.enable_wandb:
+            cfg.logging.name = str(cfg.exp_name)
+            cprint("-----------------------------", "yellow")
+            cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
+            cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
+            cprint("-----------------------------", "yellow")
+            # configure logging
+            wandb_run = wandb.init(
+                dir=str(self.output_dir),
+                config=OmegaConf.to_container(cfg, resolve=True),
+                **cfg.logging
+            )
+            wandb.config.update(
+                {
+                    "output_dir": self.output_dir,
+                }
+            )
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
@@ -236,7 +238,8 @@ class TrainDP3Workspace:
                     is_last_batch = (batch_idx == (len(train_dataloader)-1))
                     if not is_last_batch:
                         # log of last step is combined with validation and rollout
-                        wandb_run.log(step_log, step=self.global_step)
+                        if cfg.enable_wandb:
+                            wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
                     if (cfg.training.max_train_steps is not None) \
@@ -331,7 +334,8 @@ class TrainDP3Workspace:
 
             # end of epoch
             # log of last step is combined with validation and rollout
-            wandb_run.log(step_log, step=self.global_step)
+            if cfg.enable_wandb:
+                wandb_run.log(step_log, step=self.global_step)
             self.global_step += 1
             self.epoch += 1
             del step_log

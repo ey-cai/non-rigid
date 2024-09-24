@@ -142,7 +142,7 @@ class DeformEnvTAX3D(gym.Env):
         # Point cloud observation initialization
         self.pcd_mode = args.pcd
         if args.pcd:
-            self.camera_config = cameraConfig.from_file(args.cam_config_path)
+            self.camera_config = cameraConfig.from_file(self.args.cam_config_path)
             self.object_ids = res[0]
             self.object_ids.append(res[1])
 
@@ -543,13 +543,19 @@ class DeformEnvTAX3D(gym.Env):
         action = action.reshape(self.num_anchors, -1)
 
         # Step through physics simulation.
+        if action_type == 'position':
+            record_forces = self.do_action_position(action, unscaled, tax3d)
+            # print(record_forces.shape)
         for sim_step in range(self.args.sim_steps_per_action):
             # self.do_action(action, unscaled)
             # self.do_action2(action, unscaled)
-            if action_type == 'velocity':
+            if action_type == 'position':
+                for i in range(self.num_anchors):
+                    force = np.clip(record_forces[i], -5.0, 5.0)
+                    self.sim.applyExternalForce(
+                        self.anchor_ids[i], -1, force.tolist(), [0, 0, 0], pybullet.LINK_FRAME)
+            elif action_type == 'velocity':
                 self.do_action_velocity(action, unscaled)
-            elif action_type == 'position':
-                self.do_action_position(action, unscaled, tax3d)
             else:
                 raise ValueError(f'Unknown action type {action_type}')
             self.sim.stepSimulation()
@@ -583,6 +589,8 @@ class DeformEnvTAX3D(gym.Env):
             last_rwd = self.get_reward() * DeformEnvTAX3D.FINAL_REWARD_MULT
             reward += last_rwd
             info['final_reward'] = reward
+            if action_type == 'position':
+                info['record_forces'] = record_forces
 
             # Returning rollout video
             if self.rollout_vid:
@@ -592,7 +600,10 @@ class DeformEnvTAX3D(gym.Env):
                 info['pre_release_frame'] = pre_release_frame
 
         else:
-            info = {}
+            if action_type == 'position':
+                info = {'record_forces': record_forces}
+            else:
+                info = {}
 
         self.episode_reward += reward  # update episode reward
 
@@ -615,16 +626,19 @@ class DeformEnvTAX3D(gym.Env):
 
     def do_action_position(self, action, unscaled, tax3d):
         # uses basic proportional position control instead
+        record_forces = []
         for i in range(self.num_anchors):
-            command_anchor_position(
+            raw_force = command_anchor_position(
                 self.sim, self.anchor_ids[i],
                 action[i],
                 tax3d=tax3d,
                 task='proccloth'
             )
+            record_forces.append(raw_force)
             # self.sim.addUserDebugPoints(
             #     [action[i]], [[1, 0, 0]], pointSize=10
             # )
+        return np.array(record_forces)
 
     def make_final_steps(self):
         # We do no explicitly release the anchors, since this can create a jerk

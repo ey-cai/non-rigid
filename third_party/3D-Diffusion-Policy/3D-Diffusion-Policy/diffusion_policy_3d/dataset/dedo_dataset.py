@@ -66,9 +66,9 @@ class DedoDataset(BaseDataset):
         )
         self.zarr_dir = os.path.join(root_dir, dataset_dir)
         train_zarr_path = os.path.join(self.zarr_dir, 'train.zarr')
-
+        print(train_zarr_path)
         self.replay_buffer = ReplayBuffer.copy_from_path(
-            train_zarr_path, keys=['point_cloud', 'state', 'action'])
+            train_zarr_path, keys=['point_cloud', 'state', 'action', 'action_pcd', 'anchor_pcd', 'force_control'])
         train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,

@@ -134,8 +134,8 @@ def command_anchor_position(sim, anchor_bullet_id, tgt_pos, tax3d=False, task='p
         raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
 
     force = np.clip(raw_force, -1.0 * CTRL_MAX_FORCE, CTRL_MAX_FORCE)
-    sim.applyExternalForce(
-        anchor_bullet_id, -1, force.tolist(), [0, 0, 0], pybullet.LINK_FRAME)
+    # sim.applyExternalForce(
+    #     anchor_bullet_id, -1, force.tolist(), [0, 0, 0], pybullet.LINK_FRAME)
     return raw_force
 
     # TODO: maybe try not flooring if the mag is small enough - i.e. don't have crazy forces when it's super close

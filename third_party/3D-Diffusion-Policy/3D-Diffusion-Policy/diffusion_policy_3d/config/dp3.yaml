@@ -14,6 +14,7 @@ n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
 obs_as_global_cond: True
+enable_wandb: False
 
 policy:
   _target_: diffusion_policy_3d.policy.dp3.DP3

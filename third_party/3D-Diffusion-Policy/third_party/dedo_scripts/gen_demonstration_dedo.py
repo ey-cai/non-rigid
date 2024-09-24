@@ -133,7 +133,7 @@ if __name__ == '__main__':
     dedo_args.rollout_vid = True
     dedo_args.pcd = True
     dedo_args.logdir = 'rendered'
-    dedo_args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
+    dedo_args.cam_config_path = '/home/yingyuan/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json'
     args_postprocess(dedo_args)
 
     # TODO: based on env name, there should be some logic here handling resetting of the environment
@@ -168,6 +168,8 @@ if __name__ == '__main__':
 
     action_pcd_arrays = []
     anchor_pcd_arrays = []
+    goal_pcd_arrays = []
+    force_control_arrays = []
     state_arrays = []
     action_arrays = []
     episode_ends_arrays = []
@@ -256,6 +258,7 @@ if __name__ == '__main__':
             # episode data
             action_pcd_arrays_sub = []
             anchor_pcd_arrays_sub = []
+            force_control_arrays_sub = []
             state_arrays_sub = []
             action_arrays_sub = []
 
@@ -294,6 +297,8 @@ if __name__ == '__main__':
 
                 # obs, reward, done, info = env.step(action, action_type='velocity')
                 obs, reward, done, info = env.step(action, action_type='position')
+                if 'record_forces' in info:
+                    force_control_arrays_sub.append(info['record_forces'])
                 reward_sum += reward
                 if done:
                     success = info['is_success']
@@ -308,9 +313,13 @@ if __name__ == '__main__':
 
                 action_pcd_arrays.extend(action_pcd_arrays_sub)
                 anchor_pcd_arrays.extend(anchor_pcd_arrays_sub)
+                force_control_arrays.extend(force_control_arrays_sub)
                 state_arrays.extend(state_arrays_sub)
                 action_arrays.extend(action_arrays_sub)
 
+                len_episode = len(action_pcd_arrays_sub)
+                goal_pcd_arrays_sub = np.tile(np.expand_dims(obs["action_pcd"], axis=0), (len_episode, 1, 1))
+                goal_pcd_arrays.extend(goal_pcd_arrays_sub)
 
                 # TODO: this is incredibly hacky, but save demo id??
                 # updating tax3d demo with flow, and saving
@@ -355,9 +364,12 @@ if __name__ == '__main__':
     # save point cloud and action arrays into data, and episode ends arrays into meta
     action_pcd_arrays = np.stack(action_pcd_arrays, axis=0)
     anchor_pcd_arrays = np.stack(anchor_pcd_arrays, axis=0)
+    goal_pcd_arrays = np.stack(goal_pcd_arrays, axis=0)
+    force_control_arrays = np.stack(force_control_arrays, axis=0)
     state_arrays = np.stack(state_arrays, axis=0)
     action_arrays = np.stack(action_arrays, axis=0)
     episode_ends_arrays = np.array(episode_ends_arrays)
+    print(action_pcd_arrays.shape, anchor_pcd_arrays.shape, goal_pcd_arrays.shape, force_control_arrays.shape, state_arrays.shape, action_arrays.shape)
 
     # as an additional step, create point clouds that combine action and anchor
     point_cloud_arrays = np.concatenate([action_pcd_arrays, anchor_pcd_arrays], axis=1)
@@ -367,11 +379,15 @@ if __name__ == '__main__':
     # for now, use chunk size of 100
     action_pcd_chunk_size = (100, action_pcd_arrays.shape[1], action_pcd_arrays.shape[2])
     anchor_pcd_chunk_size = (100, anchor_pcd_arrays.shape[1], anchor_pcd_arrays.shape[2])
+    goal_pcd_chunk_size = (100, goal_pcd_arrays.shape[1], goal_pcd_arrays.shape[2])
+    force_control_chunk_size = (100, force_control_arrays.shape[1], force_control_arrays.shape[2])
     state_chunk_size = (100, state_arrays.shape[1])
     action_chunk_size = (100, action_arrays.shape[1])
 
     zarr_data.create_dataset('action_pcd', data=action_pcd_arrays, chunks=action_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('anchor_pcd', data=anchor_pcd_arrays, chunks=anchor_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+    zarr_data.create_dataset('goal_pcd', data=goal_pcd_arrays, chunks=goal_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+    zarr_data.create_dataset('force_control', data=force_control_arrays, chunks=force_control_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('state', data=state_arrays, chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('action', data=action_arrays, chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('point_cloud', data=point_cloud_arrays, dtype='float32', overwrite=True, compressor=compressor)
@@ -379,11 +395,13 @@ if __name__ == '__main__':
     
     cprint(f'action point cloud shape: {action_pcd_arrays.shape}, range: [{np.min(action_pcd_arrays)}, {np.max(action_pcd_arrays)}]', 'green')
     cprint(f'anchor point cloud shape: {anchor_pcd_arrays.shape}, range: [{np.min(anchor_pcd_arrays)}, {np.max(anchor_pcd_arrays)}]', 'green')
+    cprint(f'goal point cloud shape: {goal_pcd_arrays.shape}, range: [{np.min(goal_pcd_arrays)}, {np.max(goal_pcd_arrays)}]', 'green')
+    cprint(f'force control shape: {force_control_arrays.shape}, range: [{np.min(force_control_arrays)}, {np.max(force_control_arrays)}]', 'green')
     cprint(f'point cloud shape: {point_cloud_arrays.shape}, range: [{np.min(point_cloud_arrays)}, {np.max(point_cloud_arrays)}]', 'green')
     cprint(f'action shape: {action_arrays.shape}, range: [{np.min(action_arrays)}, {np.max(action_arrays)}]', 'green')
     cprint(f'Saved zarr file to {save_dir}', 'green')
 
     # clean up
-    del action_pcd_arrays, anchor_pcd_arrays, action_arrays, episode_ends_arrays
+    del action_pcd_arrays, anchor_pcd_arrays, goal_pcd_arrays, action_arrays, episode_ends_arrays, force_control_arrays
     del zarr_root, zarr_data, zarr_meta
     del env

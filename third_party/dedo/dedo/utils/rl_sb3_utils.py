@@ -143,7 +143,7 @@ class CustomCallback(BaseCallback):
                     n_eval_episodes=1, deterministic=False)
                 self.logger.record(
                     'trajectory/video',
-                    Video(torch.ByteTensor([screens]), fps=50),
+                    Video(torch.ByteTensor(np.array([screens])), fps=50),
                     exclude=('stdout', 'log', 'json', 'csv'))
 
         return True
