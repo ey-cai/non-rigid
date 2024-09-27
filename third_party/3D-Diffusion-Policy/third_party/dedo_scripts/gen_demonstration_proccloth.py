@@ -122,7 +122,7 @@ if __name__ == '__main__':
     dedo_args.rollout_vid = True
     dedo_args.pcd = True
     dedo_args.logdir = 'rendered'
-    dedo_args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
+    dedo_args.cam_config_path = '/home/ktsim/Projects/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json'
     dedo_args.viz = True
     args_postprocess(dedo_args)
 

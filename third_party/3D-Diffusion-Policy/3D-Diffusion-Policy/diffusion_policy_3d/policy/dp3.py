@@ -272,6 +272,7 @@ class DP3(BasePolicy):
         cond_data = trajectory
         
        
+        #######################################################
         
         if self.obs_as_global_cond:
             # reshape B, T, ... to B*T

@@ -48,7 +48,7 @@ class DedoEnv:
         args.rollout_vid = True
         args.pcd = True
         args.logdir = 'rendered'
-        args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
+        args.cam_config_path = '/home/ktsim/Projects/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json'
         args.viz = viz
         args_postprocess(args)
 

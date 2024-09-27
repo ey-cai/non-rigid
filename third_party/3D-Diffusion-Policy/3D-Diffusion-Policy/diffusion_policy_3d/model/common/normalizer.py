@@ -22,6 +22,7 @@ class LinearNormalizer(DictOfTensorMixin):
         output_min=-1.,
         range_eps=1e-4,
         fit_offset=True):
+        breakpoint()
         if isinstance(data, dict):
             for key, value in data.items():
                 self.params_dict[key] =  _fit(value, 

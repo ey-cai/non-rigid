@@ -712,26 +712,30 @@ class EvalTAX3DWorkspace:
 
 
 
-        runner_log = env_runner.run_dataset(policy, train_dataset, 'train')
+        pc1 = env_runner.run_dataset(policy, train_dataset, 'train')
 
-        cprint(f"---------------- Eval Results for Train --------------", 'magenta')
-        for key, value in runner_log.items():
-            if isinstance(value, float):
-                cprint(f"{key}: {value:.4f}", 'magenta')
+        # cprint(f"---------------- Eval Results for Train --------------", 'magenta')
+        # for key, value in runner_log.items():
+        #     if isinstance(value, float):
+        #         cprint(f"{key}: {value:.4f}", 'magenta')
 
-        runner_log = env_runner.run_dataset(policy, val_dataset, 'val')
+        pc2 = env_runner.run_dataset(policy, val_dataset, 'val')
 
-        cprint(f"---------------- Eval Results for Val. --------------", 'magenta')
-        for key, value in runner_log.items():
-            if isinstance(value, float):
-                cprint(f"{key}: {value:.4f}", 'magenta')
+        # cprint(f"---------------- Eval Results for Val. --------------", 'magenta')
+        # for key, value in runner_log.items():
+        #     if isinstance(value, float):
+        #         cprint(f"{key}: {value:.4f}", 'magenta')
             
-        runner_log = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
+        pc3 = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
 
-        cprint(f"---------------- Eval Results for Val. OOD --------------", 'magenta')
-        for key, value in runner_log.items():
-            if isinstance(value, float):
-                cprint(f"{key}: {value:.4f}", 'magenta')
+        # cprint(f"---------------- Eval Results for Val. OOD --------------", 'magenta')
+        # for key, value in runner_log.items():
+        #     if isinstance(value, float):
+        #         cprint(f"{key}: {value:.4f}", 'magenta')
+
+        # final = pc1 + pc2 + pc3
+        torch.save(pc1, 'tensor_list.pt')
+
 
     @property
     def output_dir(self):

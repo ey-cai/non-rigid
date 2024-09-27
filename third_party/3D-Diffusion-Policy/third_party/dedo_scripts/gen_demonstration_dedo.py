@@ -19,7 +19,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='data', help='directory to save data')
-    parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run')
+    parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run') #16/40/40
     parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
     parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
     # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
@@ -133,7 +133,7 @@ if __name__ == '__main__':
     dedo_args.rollout_vid = True
     dedo_args.pcd = True
     dedo_args.logdir = 'rendered'
-    dedo_args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
+    dedo_args.cam_config_path = '/home/ktsim/Projects/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json'
     args_postprocess(dedo_args)
 
     # TODO: based on env name, there should be some logic here handling resetting of the environment
