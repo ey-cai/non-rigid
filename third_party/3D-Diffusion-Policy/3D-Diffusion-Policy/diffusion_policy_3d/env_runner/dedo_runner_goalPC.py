@@ -17,6 +17,7 @@ from diffusion_policy_3d.env_runner.base_runner import BaseRunner
 import diffusion_policy_3d.common.logger_util as logger_util
 
 from non_rigid.utils.vis_utils import plot_diffusion
+import rpad.visualize_3d.plots as vpl
 
 from PIL import Image
 
@@ -196,6 +197,22 @@ class DedoRunner(BaseRunner):
                 obs_dict_input['seg_anchor'] = obs_dict['seg_anchor'].int()
                 goal_PC= policy.model_predict(obs_dict_input)
                 pointCloudList.append(goal_PC)
+
+            # goal_PC_cpu = goal_PC.cpu().numpy().squeeze(0)
+            # fig = vpl.segmentation_fig(
+            #     np.concatenate([
+            #         obs['pc_action'].squeeze(0),
+            #         obs['pc_anchor'].squeeze(0),
+            #         goal_PC_cpu,
+            #     ]),
+            #     np.concatenate([
+            #         obs['seg'].squeeze(0),
+            #         obs['seg_anchor'].squeeze(0),
+            #         np.ones(goal_PC_cpu.shape[0]) * 2,
+                    
+            #     ]).astype(int)
+            # )
+            # fig.show()
             
                    
         del env

@@ -708,9 +708,6 @@ class EvalTAX3DWorkspace:
         #         cprint(f"{key}: {value:.4f}", 'magenta')
 
 
-
-
-
         pc1 = env_runner.run_dataset(policy, train_dataset, 'train')
 
         # cprint(f"---------------- Eval Results for Train --------------", 'magenta')
@@ -733,8 +730,9 @@ class EvalTAX3DWorkspace:
         #         cprint(f"{key}: {value:.4f}", 'magenta')
 
         # final = pc1 + pc2 + pc3
-        torch.save(pc1, 'tensor_list.pt')
-
+        torch.save(pc1, 'tensor_list_train.pt')
+        torch.save(pc2, 'tensor_list_val.pt')
+        torch.save(pc3, 'tensor_list_val_ood.pt')
 
     @property
     def output_dir(self):

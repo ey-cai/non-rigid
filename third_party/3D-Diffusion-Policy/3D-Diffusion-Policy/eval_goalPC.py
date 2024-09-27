@@ -14,7 +14,7 @@ import dill
 from omegaconf import OmegaConf
 import pathlib
 # from train import TrainDP3Workspace, EvalTAX3DWorkspace
-from retreiveGoalPC import TrainDP3Workspace, EvalTAX3DWorkspace
+from trainGoalPC import TrainDP3Workspace, EvalTAX3DWorkspace
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
     
