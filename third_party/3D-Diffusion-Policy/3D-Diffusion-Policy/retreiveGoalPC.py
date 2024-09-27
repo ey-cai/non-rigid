@@ -661,7 +661,6 @@ class EvalTAX3DWorkspace:
 
         import torch.utils.data as data
 
-        # breakpoint()
         class DedoDataset(data.Dataset):
             def __init__(self, dir):
                 self.dir = dir
