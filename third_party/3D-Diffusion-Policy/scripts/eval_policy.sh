@@ -13,9 +13,13 @@ addition_info=${3}
 seed=${4}
 exp_name=${task_name}-${alg_name}-${addition_info}
 # run_dir="data/outputs/${exp_name}_seed${seed}"
-run_dir="/home/eycai/Documents/data/outputs/${exp_name}_seed${seed}"
+run_dir="/home/yingyuan/non-rigid/third_party/3D-Diffusion-Policy/3D-Diffusion-Policy/data/outputs/${exp_name}_seed${seed}"
 
 gpu_id=${5}
+use_goal_pc=${6}
+pointnet_type=${7}
+version=${8}
+use_onehot=${9}
 
 
 cd 3D-Diffusion-Policy
@@ -29,8 +33,13 @@ python eval.py --config-name=${config_name}.yaml \
                             training.seed=${seed} \
                             training.device="cuda:0" \
                             exp_name=${exp_name} \
-                            logging.mode=${wandb_mode} \
-                            checkpoint.save_ckpt=${save_ckpt}
+                            logging.mode=offline \
+                            checkpoint.save_ckpt=${save_ckpt} \
+                            policy.pointcloud_encoder_cfg.version=${version} \
+                            policy.pointcloud_encoder_cfg.extractor_mode=simple \
+                            policy.pointcloud_encoder_cfg.use_goal_pc=${use_goal_pc} \
+                            policy.pointnet_type=${pointnet_type} \
+                            policy.pointcloud_encoder_cfg.use_onehot=${use_onehot}
 
 
 

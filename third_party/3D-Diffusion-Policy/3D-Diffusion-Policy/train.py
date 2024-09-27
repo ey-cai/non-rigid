@@ -305,7 +305,7 @@ class TrainDP3Workspace:
                     del pred_action
                     del mse
 
-            if env_runner is None:
+            if env_runner is None or 'test_mean_score' not in step_log:
                 step_log['test_mean_score'] = - train_loss
 
             # checkpoint

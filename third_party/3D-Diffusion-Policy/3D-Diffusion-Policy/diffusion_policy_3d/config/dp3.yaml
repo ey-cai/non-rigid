@@ -56,10 +56,14 @@ policy:
   shape_meta: ${shape_meta}
 
   use_pc_color: false
-  pointnet_type: "pointnet"
+  pointnet_type: "pointnet"  # pointnet++, pointnet_attention
 
 
   pointcloud_encoder_cfg:
+    version: origin # new
+    extractor_mode: simple # incremental, all
+    use_goal_pc: True
+    use_onehot: False
     in_channels: 3
     out_channels: ${policy.encoder_output_dim}
     use_layernorm: true

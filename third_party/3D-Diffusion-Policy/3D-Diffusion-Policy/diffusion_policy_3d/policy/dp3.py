@@ -16,7 +16,7 @@ from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUn
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
-from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder
+from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder, TAX3DEncoder
 
 class DP3(BasePolicy):
     def __init__(self, 
@@ -59,13 +59,24 @@ class DP3(BasePolicy):
         obs_dict = dict_apply(obs_shape_meta, lambda x: x['shape'])
 
 
-        obs_encoder = DP3Encoder(observation_space=obs_dict,
+        if pointcloud_encoder_cfg['version'] == 'origin':
+            obs_encoder = DP3Encoder(observation_space=obs_dict,
                                                    img_crop_shape=crop_shape,
                                                 out_channel=encoder_output_dim,
                                                 pointcloud_encoder_cfg=pointcloud_encoder_cfg,
                                                 use_pc_color=use_pc_color,
                                                 pointnet_type=pointnet_type,
                                                 )
+        elif pointcloud_encoder_cfg['version'] == 'new':
+            obs_encoder = TAX3DEncoder(observation_space=obs_dict,
+                                                   img_crop_shape=crop_shape,
+                                                out_channel=encoder_output_dim,
+                                                pointcloud_encoder_cfg=pointcloud_encoder_cfg,
+                                                use_pc_color=use_pc_color,
+                                                pointnet_type=pointnet_type,
+                                                )
+        else:
+            raise NotImplementedError
 
         # create diffusion model
         obs_feature_dim = obs_encoder.output_shape()
@@ -273,13 +284,13 @@ class DP3(BasePolicy):
         
        
         
-        if self.obs_as_global_cond:
+        if self.obs_as_global_cond: # True
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, 
                 lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
 
-            if "cross_attention" in self.condition_type:
+            if "cross_attention" in self.condition_type: # False
                 # treat as a sequence
                 global_cond = nobs_features.reshape(batch_size, self.n_obs_steps, -1)
             else:

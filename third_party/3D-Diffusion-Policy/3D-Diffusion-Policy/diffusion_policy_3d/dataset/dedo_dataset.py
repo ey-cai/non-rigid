@@ -68,7 +68,7 @@ class DedoDataset(BaseDataset):
         train_zarr_path = os.path.join(self.zarr_dir, 'train.zarr')
         print(train_zarr_path)
         self.replay_buffer = ReplayBuffer.copy_from_path(
-            train_zarr_path, keys=['point_cloud', 'state', 'action', 'action_pcd', 'anchor_pcd', 'force_control'])
+            train_zarr_path, keys=['point_cloud', 'state', 'action', 'action_pcd', 'anchor_pcd', 'force_control', 'goal_pcd'])
         train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
@@ -140,6 +140,9 @@ class DedoDataset(BaseDataset):
             'action': self.replay_buffer['action'],
             'agent_pos': self.replay_buffer['state'][...,:],
             'point_cloud': self.replay_buffer['point_cloud'],
+            'action_pcd': self.replay_buffer['action_pcd'],
+            'anchor_pcd': self.replay_buffer['anchor_pcd'],
+            'goal_pcd': self.replay_buffer['goal_pcd']
         }
         normalizer = LinearNormalizer()
         normalizer.fit(data, last_n_dims=1, mode=mode,**kwargs)
@@ -156,11 +159,18 @@ class DedoDataset(BaseDataset):
         agent_pos = sample['state'].astype(np.float32)
         action = sample['action'].astype(np.float32)
         point_cloud = sample['point_cloud'].astype(np.float32)
+        action_pcd = sample['action_pcd'].astype(np.float32)
+        anchor_pcd = sample['anchor_pcd'].astype(np.float32)
+        # force_control = sample['force_control'].astype(np.float32)
+        goal_pcd = sample['goal_pcd'].astype(np.float32)
 
         data = {
             'obs': {
                 'point_cloud': point_cloud, # T, 1024, 3, no rgb
                 'agent_pos': agent_pos, # T, D_pos
+                'action_pcd': action_pcd, # T, 512, 3
+                'anchor_pcd': anchor_pcd, # T, 512, 3
+                'goal_pcd': goal_pcd # T, 580, 3
             },
             'action': action # T, D_action
         }
@@ -176,26 +186,36 @@ class DedoDataset(BaseDataset):
         if self.random_augment:
             # sample transform and compute mean across all timesteps
             T = random_so2()
-            point_cloud = torch_data['obs']['point_cloud']
             agent_pos = torch_data['obs']['agent_pos']
+            action_pcd = torch_data['obs']['action_pcd']
+            anchor_pcd = torch_data['obs']['anchor_pcd']
+            goal_pcd = torch_data['obs']['goal_pcd']
             action = torch_data['action']
-            point_cloud_mean = point_cloud.mean(dim=[0, 1], keepdim=True)
+            n_action_pcd = action_pcd.shape[1]
+            n_anchor_pcd = anchor_pcd.shape[1]
+            n_goal_pcd = goal_pcd.shape[1]
+            
+            all_point_cloud = torch.cat([action_pcd, anchor_pcd, goal_pcd], dim=1)
+            all_point_cloud_mean = all_point_cloud.mean(dim=[0, 1], keepdim=True)
 
             # transform point cloud
-            point_cloud = T.transform_points(point_cloud - point_cloud_mean) + point_cloud_mean
+            all_point_cloud = T.transform_points(all_point_cloud - all_point_cloud_mean) + all_point_cloud_mean
 
             # transform agent pos
-            agent_pos[:, 0:3] = T.transform_points(agent_pos[:, 0:3] - point_cloud_mean) + point_cloud_mean
-            agent_pos[:, 6:9] = T.transform_points(agent_pos[:, 6:9] - point_cloud_mean) + point_cloud_mean
+            agent_pos[:, 0:3] = T.transform_points(agent_pos[:, 0:3] - all_point_cloud_mean) + all_point_cloud_mean
+            agent_pos[:, 6:9] = T.transform_points(agent_pos[:, 6:9] - all_point_cloud_mean) + all_point_cloud_mean
             agent_pos[:, 3:6] = T.transform_points(agent_pos[:, 3:6])
             agent_pos[:, 9:12] = T.transform_points(agent_pos[:, 9:12])
 
             # transform action
-            action[:, 0:3] = T.transform_points(action[:, 0:3] - point_cloud_mean) + point_cloud_mean
-            action[:, 3:6] = T.transform_points(action[:, 3:6] - point_cloud_mean) + point_cloud_mean
+            action[:, 0:3] = T.transform_points(action[:, 0:3] - all_point_cloud_mean) + all_point_cloud_mean
+            action[:, 3:6] = T.transform_points(action[:, 3:6] - all_point_cloud_mean) + all_point_cloud_mean
 
             # update torch data
-            torch_data['obs']['point_cloud'] = point_cloud
+            torch_data['obs']['point_cloud'] = all_point_cloud
+            torch_data['obs']['action_pcd'] = all_point_cloud[:, :n_action_pcd, :]
+            torch_data['obs']['anchor_pcd'] = all_point_cloud[:, n_action_pcd:n_action_pcd+n_anchor_pcd, :]
+            torch_data['obs']['goal_pcd'] = all_point_cloud[:, n_action_pcd+n_anchor_pcd:, :]
             torch_data['obs']['agent_pos'] = agent_pos
             torch_data['action'] = action
         return torch_data

@@ -221,6 +221,8 @@ class DedoRunner(BaseRunner):
                     else:
                         obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
                         obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
+                        obs_dict_input['action_pcd'] = obs_dict['point_cloud'][:, :512, :].unsqueeze(0)
+                        obs_dict_input['anchor_pcd'] = obs_dict['point_cloud'][:, 512:, :].unsqueeze(0)
                         action_dict = policy.predict_action(obs_dict_input)
 
                 # device transfer

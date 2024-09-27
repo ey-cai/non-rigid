@@ -6,6 +6,7 @@ name: tax3d
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "debug"
+enable_wandb: False
 
 training:
   device: "cuda:0"
