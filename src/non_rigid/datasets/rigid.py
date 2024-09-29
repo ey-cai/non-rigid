@@ -21,6 +21,7 @@ class RigidDatasetCfg:
     name: str = "rigid"
     data_dir: str = "data/rigid"
     type: str = "train"
+    scene: bool = False
     # Misc. kwargs to pass to the dataset e.g. dataset specific parameters
     misc_kwargs: Dict = field(default_factory=dict)
 
@@ -762,19 +763,21 @@ DATASET_FN = {
 class RigidDataModule(L.LightningModule):
     def __init__(
         self,
-        root: Path,
+        #root: Path,
         batch_size: int,
         val_batch_size: int,
         num_workers: int,
         dataset_cfg: omegaconf.DictConfig = None,
     ):
         super().__init__()
-        self.root = root
+        #self.root = root
+        data_dir = os.path.expanduser(dataset_cfg.data_dir)
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
         self.num_workers = num_workers
         self.dataset_cfg = dataset_cfg
-
+        self.root = Path(data_dir)
+    
     def prepare_data(self):
         pass
 
@@ -811,3 +814,10 @@ class RigidDataModule(L.LightningModule):
             shuffle=False,
             drop_last=False,
         )
+
+####################################################################
+####################################################################
+####################################################################
+####################################################################
+####################################################################
+####################################################################

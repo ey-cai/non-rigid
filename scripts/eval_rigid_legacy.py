@@ -1,81 +1,45 @@
+from functools import partial
 import hydra
 import lightning as L
-import json
 import omegaconf
 import torch
 import torch.utils._pytree as pytree
 import wandb
 
-from functools import partial
 from pathlib import Path
 import os
 
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 from rpad.visualize_3d.plots import flow_fig, _flow_traces, pointcloud, _3d_scene
 from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataset, ProcClothFlowDataModule
+from non_rigid.datasets.rigid import RigidPointDataset, RigidFlowDataset, RigidDataModule
 from non_rigid.models.df_base import (
     DiffusionFlowBase, 
     FlowPredictionInferenceModule, 
-    PointPredictionInferenceModule
+    FlowPredictionTrainingModule,
+    PointPredictionTrainingModule
 )
-from non_rigid.models.regression import (
-    LinearRegression,
-    LinearRegressionInferenceModule
-)
-from non_rigid.utils.vis_utils import FlowNetAnimation
 from non_rigid.utils.script_utils import (
     PROJECT_ROOT,
     LogPredictionSamplesCallback,
     create_model,
-    create_datamodule,
     match_fn,
     flatten_outputs
 )
+from non_rigid.utils.transform_utils import flow_to_tf
+from non_rigid.utils.vis_utils import FlowNetAnimation
 
-from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse
+from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pcd_rmse
 from non_rigid.models.dit.diffusion import create_diffusion
-from non_rigid.utils.pointcloud_utils import expand_pcd
 from tqdm import tqdm
 import numpy as np
-
-from pytorch3d.transforms import Transform3d, Rotate, Translate, euler_angles_to_matrix
-import rpad.visualize_3d.plots as vpl
-
-
-
-def visualize_batched_point_clouds(point_clouds):
-    """
-    Helper function to visualize a list of batched point clouds. This is meant to be used 
-    when visualizing action/anchor/prediction point clouds, without having to add 
-
-    point_clouds: list of point clouds, each of shape (B, N, 3)
-    """
-    pcs = [pc.cpu().flatten(0, 1) for pc in point_clouds]
-    segs = []
-    for i, pc in enumerate(pcs):
-        segs.append(torch.ones(pc.shape[0]).int() * i)
-
-    return vpl.segmentation_fig(
-        torch.cat(pcs),
-        torch.cat(segs),
-    )
-
-
 
 
 @torch.no_grad()
 @hydra.main(config_path="../configs", config_name="eval", version_base="1.3")
 def main(cfg):
-    print(
-        json.dumps(
-            omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=False),
-            sort_keys=True,
-            indent=4,
-        )
-    )
     ######################################################################
     # Torch settings.
     ######################################################################
@@ -90,28 +54,49 @@ def main(cfg):
     # Global seed for reproducibility.
     L.seed_everything(42)
 
-    device = f"cuda:{cfg.resources.gpus[0]}"
-
     ######################################################################
     # Create the datamodule.
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
-    cfg, datamodule = create_datamodule(cfg)
+
+    print(F'Config:\n{cfg}')
+
 
     ######################################################################
-    # Create the network(s) which will be evaluated (same as training).
-    # You might want to put this into a "create_network" function
-    # somewhere so train and eval can be the same.
-    #
-    # We'll also load the weights.
+    # Load the datamodule
     ######################################################################
+    
+    data_root = Path(os.path.expanduser(cfg.dataset.data_dir))
+    if cfg.dataset.type == "cloth":
+        dm = ProcClothFlowDataModule
+    elif cfg.dataset.type in ["rigid_point", "rigid_flow", "ndf_point"]:
+        dm = partial(RigidDataModule, dataset_cfg=cfg.dataset) # TODO: Remove the need to use partial
+    else:
+        raise ValueError(f"Unknown dataset type: {cfg.dataset.type}")
 
-    # Model architecture is dataset-dependent, so we have a helper
+    datamodule = dm(
+        root=data_root,
+        batch_size=cfg.inference.batch_size,
+        val_batch_size=cfg.inference.val_batch_size,
+        num_workers=cfg.resources.num_workers,
+        type=cfg.dataset.type,
+    )
+    datamodule.setup(stage="predict")
+
+    
+    ######################################################################
+    # Set up the network.
+    ######################################################################
+    
     # function to create the model (while separating out relevant vals).
-    network, model = create_model(cfg)
-
-
+    network = DiffusionFlowBase(
+        in_channels=cfg.model.in_channels,
+        learn_sigma=cfg.model.learn_sigma,
+        model=cfg.model.dit_arch,
+        model_cfg=cfg.model,
+    )    
+    
     # get checkpoint file (for now, this does not log a run)
     checkpoint_reference = cfg.checkpoint.reference
     if checkpoint_reference.startswith(cfg.wandb.entity):
@@ -122,223 +107,51 @@ def main(cfg):
     else:
         ckpt_file = checkpoint_reference
     # Load the network weights.
-    ckpt = torch.load(ckpt_file, map_location=device)
+    ckpt = torch.load(ckpt_file)
     network.load_state_dict(
         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
     )
     # set model to eval mode
     network.eval()
+    # move network to gpu for evaluation
+    if torch.cuda.is_available():
+        network.cuda()
+    
+    
+    ######################################################################
+    # Set up the model
+    ######################################################################
+    
+    if cfg.model.type in ["flow"]:
+        model = FlowPredictionInferenceModule(network, inference_cfg=cfg.inference, model_cfg=cfg.model)
+    elif cfg.model.type in ["flow_cross"]:
+        model = FlowPredictionTrainingModule(network, training_cfg=cfg.inference, model_cfg=cfg.model)
+    elif cfg.model.type == "point_cross":
+        model = PointPredictionTrainingModule(network, training_cfg=cfg.inference, model_cfg=cfg.model)
+    else:
+        raise ValueError(f"Model type {cfg.model.type} not recognized.")
     model.eval()
+    if torch.cuda.is_available():
+        model.cuda()
+
+    device = model.device
 
     ######################################################################
-    # Create the trainer.
-    # Bit of a misnomer here, we're not doing training. But we are gonna
-    # use it to set up the model appropriately and do all the batching
-    # etc.
-    #
-    # If this is a different kind of downstream eval, chuck this block.
+    # Set up the individual datasets
     ######################################################################
 
-    trainer = L.Trainer(
-        accelerator="gpu",
-        devices=cfg.resources.gpus,
-        # precision="16-mixed",
-        precision="32-true",
-        logger=False,
-    )
-
-    ######################################################################
-    # Run the model on the train/val/test sets.
-    # This outputs a list of dictionaries, one for each batch. This
-    # is annoying to work with, so later we'll flatten.
-    #
-    # If a downstream eval, you can swap it out with whatever the eval
-    # function is.
-    ######################################################################
-    
-    if cfg.coverage:
-        train_outputs, val_outputs, val_ood_outputs = trainer.predict(
-            model,
-            dataloaders=[
-                datamodule.train_dataloader(),
-                *datamodule.val_dataloader(),
-            ]
-            )
-    
-
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True)
-        fig_wta = make_subplots(rows=2, cols=1, shared_xaxes=True)
-        color_dict = {
-            "train": "blue",
-            "val": "red",
-            "val_ood": "green",
-        }
-        for outputs_list, name in [
-            (train_outputs, "train"),
-            (val_outputs, "val"),
-            (val_ood_outputs, "val_ood")
-        ]:
-            # Put everything on CPU, and flatten a list of dicts into one dict.
-            out_cpu = [pytree.tree_map(lambda x: x.cpu(), o) for o in outputs_list]
-            outputs = flatten_outputs(out_cpu)
-            # plot histogram
-            fig.add_trace(go.Histogram(
-                x=outputs["rmse"].flatten(), 
-                nbinsx=100, 
-                name=f"{name} RMSE",
-                legendgroup=f"{name} RMSE",
-                marker=dict(
-                    color=color_dict[name],
-                ),
-                # color=name,
-                ), row=1, col=1,
-            )
-            fig.add_trace(go.Box(
-                x=outputs["rmse"].flatten(),
-                marker_symbol='line-ns-open',
-                marker=dict(
-                    color=color_dict[name],
-                ),
-                boxpoints='all',
-                #fillcolor='rgba(0,0,0,0)',
-                #line_color='rgba(0,0,0,0)',
-                pointpos=0,
-                hoveron='points',
-                name=f"{name} RMSE",
-                showlegend=False,
-                legendgroup=f"{name} RMSE",           
-                ), row=2, col=1
-            )
-            # plot wta histogram
-            fig_wta.add_trace(go.Histogram(
-                x=outputs["rmse_wta"].flatten(), 
-                nbinsx=100, 
-                name=f"{name} RMSE WTA",
-                legendgroup=f"{name} RMSE WTA",
-                marker=dict(
-                    color=color_dict[name],
-                ),
-                # color=name,
-                ), row=1, col=1,
-            )
-            fig_wta.add_trace(go.Box(
-                x=outputs["rmse_wta"].flatten(),
-                marker_symbol='line-ns-open',
-                marker=dict(
-                    color=color_dict[name],
-                ),
-                boxpoints='all',
-                #fillcolor='rgba(0,0,0,0)',
-                #line_color='rgba(0,0,0,0)',
-                pointpos=0,
-                hoveron='points',
-                name=f"{name} RMSE WTA",
-                showlegend=False,
-                legendgroup=f"{name} RMSE WTA",           
-                ), row=2, col=1
-            )
-
-            # Compute the metrics.
-            # cos_sim = torch.mean(outputs["cos_sim"])
-            rmse = torch.mean(outputs["rmse"])
-            # cos_sim_wta = torch.mean(outputs["cos_sim_wta"])
-            rmse_wta = torch.mean(outputs["rmse_wta"])
-            # print(f"{name} cos sim: {cos_sim}, rmse: {rmse}")
-            # print(f"{name} cos sim wta: {cos_sim_wta}, rmse wta: {rmse_wta}")
-            print(f"{name} rmse: {rmse}, rmse wta: {rmse_wta}")
-        fig.show()
-        fig_wta.show()
-
-
-    if cfg.precision:
-        model.to(device)
-        # precision_dm = 2
-
-        # creating precision-specific datamodule - needs specific batch size
-        # if "multi_cloth" in cfg.dataset:
-        #     bs = int(400 / cfg.dataset.multi_cloth.size)
-        # else:
-        #     raise NotImplementedError("Precision metrics only supported for multi-cloth datasets.")
-        
-        if cfg.dataset.cloth_geometry == "single":
-            num_samples = 1
-            train_bs = 400
-            val_bs = 40
-        else:
-            num_samples = 20
-            train_bs = 4
-            val_bs = 4
-
-
-        # cfg.dataset.sample_size_action = -1
-        datamodule = ProcClothFlowDataModule(
-            # root=data_root,
-            batch_size=train_bs,
-            val_batch_size=val_bs,
-            num_workers=cfg.resources.num_workers,
-            dataset_cfg=cfg.dataset,
-        )
-        # just need the dataloaders
-        datamodule.setup(stage="predict")
-        train_loader = datamodule.train_dataloader()
-        val_loader, val_ood_loader = datamodule.val_dataloader()
-
-        # TODO: PRED FLOW IS NOT IN THE SAME FRAME AS GT FLOW...
-        # ALSO WHY DO THEY GET SO MUCH WORSE FOR VAL AND VAL_OOD
-
-
-        def precision_eval(dataloader, model, bs):
-            precision_rmses = []
-            for batch in tqdm(dataloader):
-                # generate predictions
-                seg = batch["seg"].to(device)
-                pred_dict = model.predict(batch, num_samples, progress=False)
-                pred_action = pred_dict["pred_action"]#.cpu() # in goal/anchor frame
-
-                rot = batch['rot'].to(device)
-                trans = batch['trans'].to(device)
-                pc = batch["pc"].to(device)
-                # reverting transforms
-                T_world2origin = Translate(trans).inverse().compose(
-                    Rotate(euler_angles_to_matrix(rot, 'XYZ'))
-                )
-                T_goal2world = Transform3d(
-                    matrix=batch["T_goal2world"].to(device)
-                )
-                # goal to world, then world to origin
-                pc = T_goal2world.transform_points(pc)
-                pc = T_world2origin.transform_points(pc)
-
-                # expanding transform to handle pred_action
-                T_goal2world = Transform3d(
-                    matrix=expand_pcd(T_goal2world.get_matrix(), num_samples)
-                )
-                T_world2origin = Transform3d(
-                    matrix=expand_pcd(T_world2origin.get_matrix(), num_samples)
-                )
-                pred_action = T_goal2world.transform_points(pred_action)
-                pred_action = T_world2origin.transform_points(pred_action)
-            
-                #fig = visualize_batched_point_clouds([pc_anchor, pc, pred_action])
-                #fig.show()
-
-                batch_rmses = []
-
-                for p in pred_action:
-                    p = expand_pcd(p.unsqueeze(0), bs)
-                    rmse = flow_rmse(p, pc, mask=True, seg=seg)
-                    rmse_min = torch.min(rmse)
-                    batch_rmses.append(rmse_min)
-                precision_rmses.append(torch.tensor(batch_rmses).mean())
-            return torch.stack(precision_rmses).mean()
-
-        train_precision_rmse = precision_eval(train_loader, model, train_bs)
-        val_precision_rmse = precision_eval(val_loader, model, val_bs)
-        val_ood_precision_rmse = precision_eval(val_ood_loader, model, val_bs)
-        print("Train Precision RMSE: ", train_precision_rmse)
-        print("Val Precision RMSE: ", val_precision_rmse)
-        print("Val OOD Precision RMSE: ", val_ood_precision_rmse)
-
+    # data_root = Path(os.path.expanduser(cfg.dataset.data_dir))
+    # sample_size = cfg.dataset.sample_size
+    # # data_root = data_root / f"{cfg.dataset.obj_id}_flow_{cfg.dataset.type}"
+    # if cfg.dataset.type == "cloth":
+    #     train_dataset = ProcClothFlowDataset(data_root, "train")
+    #     val_dataset = ProcClothFlowDataset(data_root, "val")
+    # elif cfg.dataset.type == "rigid_point":
+    #     train_dataset = RigidPointDataset(data_root, "train", dataset_cfg=cfg.dataset)
+    #     val_dataset = RigidPointDataset(data_root, "val", dataset_cfg=cfg.dataset)
+    # elif cfg.dataset.type == "rigid_flow":
+    #     train_dataset = RigidFlowDataset(data_root, "train", dataset_cfg=cfg.dataset)
+    #     val_dataset = RigidFlowDataset(data_root, "val", dataset_cfg=cfg.dataset)
 
     MMD_METRICS = False
     PRECISION_METRICS = True
@@ -417,7 +230,7 @@ def main(cfg):
         # generate predictions
         model.to(device)
 
-        if cfg.model.type == "point":
+        if cfg.model.type == "point_cross":
             bs = 1
             data = datamodule.val_dataset[VISUALIZE_SINGLE_IDX]
             pos = data["pc"].unsqueeze(0).to(device)
@@ -494,7 +307,7 @@ def main(cfg):
             if SAVE_FIG:
                 fig.write_html("histogram.html")
             print(precision_rmses.mean())
-        elif cfg.model.type == "flow":
+        elif cfg.model.type == "flow_cross":
             data = datamodule.val_dataset[0]
             pos = data["pc"].unsqueeze(0).to(device)
             pc_anchor = data["pc_anchor"].unsqueeze(0).to(device)
@@ -788,6 +601,7 @@ def main(cfg):
                 fig.show()
             if SAVE_FIG:
                 fig.write_html("eval_pcd.html")
+
 
 if __name__ == "__main__":
     main()

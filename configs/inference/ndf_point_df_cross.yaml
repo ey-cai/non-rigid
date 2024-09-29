@@ -8,9 +8,10 @@ grad_clip_norm: 1.0
 num_training_steps: None # Set by the training loop.
 sample_size: 512 # Set by the training loop, from dataset config.
 sample_size_anchor: 512 # Set by the training loop, from dataset config.
-
+action_full: False
 check_val_every_n_epochs: 100
 num_wta_trials: 20
+num_trials: 1
 
 additional_train_logging_period: 10000 # Global step period to log additional training metrics
 prediction_error_type: distractor_min # [demo, distractor_min], type of prediction error to use

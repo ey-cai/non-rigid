@@ -18,61 +18,81 @@ shift
 shift
 COMMAND=$@
 
-# scene flow model - no object-centric processing
-if [ $MODEL_TYPE == "scene_flow" ]; then
-  echo "Evaluating scene flow model at checkpoint $CHECKPOINT with command: $COMMAND."
 
-  MODEL_PARAMS="model=df_base model.type=flow"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=flow dataset.scene=True dataset.world_frame=True"
-# scene point model - no object centric processing
-elif [ $MODEL_TYPE == "scene_point" ]; then
-  echo "Evaluating scene point model at checkpoint $CHECKPOINT with command: $COMMAND."
-
-  MODEL_PARAMS="model=df_base model.type=point"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=True dataset.world_frame=True"
-# world frame cross flow
-elif [ $MODEL_TYPE == "cross_flow_absolute" ]; then
-  echo "Evaluting absolute flow model at checkpoint $CHECKPOINT with command: $COMMAND."
-
-  MODEL_PARAMS="model=df_cross model.type=flow"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=flow dataset.scene=False dataset.world_frame=True"
-# relative frame cross flow
-elif [ $MODEL_TYPE == "cross_flow_relative" ]; then
-  echo "Evaluating relative flow model at checkpoint $CHECKPOINT with command: $COMMAND."
-
-  MODEL_PARAMS="model=df_cross model.type=flow"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=flow dataset.scene=False dataset.world_frame=False"
-# world frame cross point
-elif [ $MODEL_TYPE == "cross_point_absolute" ]; then
-  echo "Evaluating absolute point model at checkpoint $CHECKPOINT with command: $COMMAND."
-
-  MODEL_PARAMS="model=df_cross model.type=point"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=True"
-# relative frame cross point
-elif [ $MODEL_TYPE == "cross_point_relative" ]; then
+if [ $MODEL_TYPE == "cross_point_relative" ]; then
   echo "Evaluating relative point model at checkpoint $CHECKPOINT with command: $COMMAND."
 
   MODEL_PARAMS="model=df_cross model.type=point"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False"
-# flow regression baseline
-elif [ $MODEL_TYPE == "regression_flow" ]; then
-  echo "Evaluating flow regression model at checkpoint $CHECKPOINT with command: $COMMAND."
+  DATASET_PARAMS="dataset=ndf_point dataset.type=ndf_point dataset.scene=False"
 
-  MODEL_PARAMS="model=regression model.type=flow"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=flow dataset.scene=False dataset.world_frame=False"
-#  point regression baseline
-elif [ $MODEL_TYPE == "regression_point" ]; then
-  echo "Evaluating linear regression model at checkpoint $CHECKPOINT with command: $COMMAND."
-
-  MODEL_PARAMS="model=regression model.type=point"
-  DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False"
-else
-  echo "Invalid model type."
 fi
 
-python scripts/eval_cloth.py \
+python scripts/eval_rigid.py \
   $MODEL_PARAMS \
   $DATASET_PARAMS \
   resources.gpus=[${GPU_INDEX}] \
   checkpoint.reference=r-pad/non_rigid/model-${CHECKPOINT}:v0 \
   $COMMAND
+
+<<COMMENT
+
+# scene flow model - no object-centric processing
+if [ $MODEL_TYPE == "scene_flow" ]; then
+  echo "Evaluating scene flow model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_base model.type=flow"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=flow dataset.scene=True dataset.world_frame=True"
+# scene point model - no object centric processing
+elif [ $MODEL_TYPE == "scene_point" ]; then
+  echo "Evaluating scene point model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_base model.type=point"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=point dataset.scene=True dataset.world_frame=True"
+# world frame cross flow
+elif [ $MODEL_TYPE == "cross_flow_absolute" ]; then
+  echo "Evaluting absolute flow model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_cross model.type=flow"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=flow dataset.scene=False dataset.world_frame=True"
+# relative frame cross flow
+elif [ $MODEL_TYPE == "cross_flow_relative" ]; then
+  echo "Evaluating relative flow model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_cross model.type=flow"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=flow dataset.scene=False dataset.world_frame=False"
+# world frame cross point
+elif [ $MODEL_TYPE == "cross_point_absolute" ]; then
+  echo "Evaluating absolute point model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_cross model.type=point"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=point dataset.scene=False dataset.world_frame=True"
+# relative frame cross point
+elif [ $MODEL_TYPE == "cross_point_relative" ]; then
+  echo "Evaluating relative point model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_cross model.type=point"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=point dataset.scene=False dataset.world_frame=False"
+# flow regression baseline
+elif [ $MODEL_TYPE == "regression_flow" ]; then
+  echo "Evaluating flow regression model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=regression model.type=flow"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=flow dataset.scene=False dataset.world_frame=False"
+#  point regression baseline
+elif [ $MODEL_TYPE == "regression_point" ]; then
+  echo "Evaluating linear regression model at checkpoint $CHECKPOINT with command: $COMMAND."
+
+  MODEL_PARAMS="model=regression model.type=point"
+  DATASET_PARAMS="dataset=ndf_point dataset.type=point dataset.scene=False dataset.world_frame=False"
+else
+  echo "Invalid model type."
+fi
+
+python scripts/eval_rigid.py \
+  $MODEL_PARAMS \
+  $DATASET_PARAMS \
+  resources.gpus=[${GPU_INDEX}] \
+  checkpoint.reference=r-pad/non_rigid/model-${CHECKPOINT}:v0 \
+  $COMMAND
+
+COMMENT

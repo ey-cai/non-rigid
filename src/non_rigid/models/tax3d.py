@@ -108,7 +108,9 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         super().__init__()
         self.network = network
         self.model_cfg = cfg.model
+        self.dataset_cfg = cfg.dataset
         self.prediction_type = self.model_cfg.type # flow or point
+        self.dataset_type = self.dataset_cfg.type # rigid or ndf
         self.mode = cfg.mode # train or eval
 
         # prediction type-specific processing
@@ -282,22 +284,26 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
             num_samples: the number of samples to generate
         """
         ground_truth = batch[self.label_key].to(self.device)
-        seg = batch["seg"].to(self.device)
 
         # re-shaping and expanding for winner-take-all
         bs = ground_truth.shape[0]
         ground_truth = expand_pcd(ground_truth, num_samples)
-        seg = expand_pcd(seg, num_samples)
 
-        # generating diffusion predictions
-        # TODO: this should probably specific full_prediction=False
-        pred_dict = self.predict(
-            batch, num_samples, unflatten=False, progress=True
-        )
-        pred = pred_dict[self.prediction_type]["pred"]
+        # generating diffusion predictions and computing error metrics
+        if self.dataset_type in ["rigid_point", "rigid_flow", "ndf_point", "rpdiff_point"]:
+            pred_dict = self.predict(batch, num_samples, unflatten=False, progress=True, full_prediction=False)
+            pred = pred_dict[self.prediction_type]["pred"]
 
-        # computing error metrics
-        rmse = flow_rmse(pred, ground_truth, mask=True, seg=seg).reshape(bs, num_samples)
+            rmse = flow_rmse(pred, ground_truth, mask=False, seg=None).reshape(bs, num_samples)
+
+        else:
+            pred_dict = self.predict(batch, num_samples, unflatten=False, progress=True, full_prediction=True)
+            pred = pred_dict[self.prediction_type]["pred"]
+
+            seg = batch["seg"].to(self.device)
+            seg = expand_pcd(seg, num_samples)
+            rmse = flow_rmse(pred, ground_truth, mask=True, seg=seg).reshape(bs, num_samples)
+        
         pred = pred.reshape(bs, num_samples, -1, 3)
 
         # computing winner-take-all metrics

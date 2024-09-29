@@ -32,7 +32,7 @@ from non_rigid.models.tax3d import (
 )
 
 from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
-
+from non_rigid.datasets.rigid import RigidDataModule
 
 PROJECT_ROOT = str(pathlib.Path(__file__).parent.parent.parent.parent.resolve())
 
@@ -102,13 +102,18 @@ def create_model(cfg):
 def create_datamodule(cfg):
     # check that dataset and model types are compatible
     if cfg.model.type != cfg.dataset.type:
-        raise ValueError(
-            f"Model type: '{cfg.model.type}' and dataset type: '{cfg.dataset.type}' are incompatible."
+        if cfg.dataset.type in ["rigid_point", "rigid_flow", "ndf_point", "rpdiff_point"]:
+            pass
+        else:
+            raise ValueError(
+                f"Model type: '{cfg.model.type}' and dataset type: '{cfg.dataset.type}' are incompatible."
         )
 
     # check dataset name
     if cfg.dataset.name == "proc_cloth":
         datamodule_fn = ProcClothFlowDataModule
+    elif cfg.dataset.name == 'ndf_point':
+        datamodule_fn = RigidDataModule
     else:
         raise ValueError(f"Invalid dataset name: {cfg.dataset.name}")
 

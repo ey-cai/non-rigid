@@ -2,6 +2,7 @@ name: ndf_point
 data_dir: /home/odonca/workspace/rpad/data/equivariant_pose_graph/data/mug_place
 # data_dir: /home/odonca/workspace/rpad/data/rpdiff/data/overfit_1r_1m_1d
 type: ndf_point
+scene: False
 
 ###################################################
 # General Dataset Parameters
