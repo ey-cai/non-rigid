@@ -7,6 +7,10 @@ import copy
 from typing import Optional, Dict, Tuple, Union, List, Type
 from termcolor import cprint
 
+from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2_small, PointNet2_small2, PointNet2ssg_small
+from diffusion_policy_3d.model.vision.point_transformer import PointTransformerSeg, TrivialLocallyTransformer
+from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
+
 
 def square_distance(src, dst):
     """
@@ -607,13 +611,18 @@ class TAX3DEncoder(nn.Module):
                 else:
                     pointcloud_encoder_cfg.in_channels = 3
                     self.extractor = PointNetEncoderXYZ(**pointcloud_encoder_cfg)
-            elif self.pointnet_type == "pointnet2": 
-                if self.use_onehot:
-                    pointcloud_encoder_cfg.in_channels = 6
-                    self.extractor = PointNet2(**pointcloud_encoder_cfg)
-                else:
-                    pointcloud_encoder_cfg.in_channels = 3
-                    self.extractor = PointNet2(**pointcloud_encoder_cfg)
+            elif self.pointnet_type == "pointnet2":  # this encoder only considers xyz
+                self.extractor = PointNet2_small2(num_classes=pointcloud_encoder_cfg.out_channels)
+                self.extractor = replace_bn_with_gn(self.extractor,features_per_group=4)
+                # if self.use_onehot:
+                #     pointcloud_encoder_cfg.in_channels = 6
+                #     self.extractor = PointNet2(**pointcloud_encoder_cfg)
+                # else:
+                #     pointcloud_encoder_cfg.in_channels = 3
+                #     self.extractor = PointNet2(**pointcloud_encoder_cfg)
+            elif self.pointnet_type == "pointnet2ssg":  # this encoder only considers xyz
+                self.extractor = PointNet2ssg_small(num_classes=pointcloud_encoder_cfg.out_channels)
+                self.extractor = replace_bn_with_gn(self.extractor,features_per_group=4)
             elif self.pointnet_type == "pointnet_attention": 
                 if self.use_onehot:
                     pointcloud_encoder_cfg.in_channels = 6
@@ -621,6 +630,19 @@ class TAX3DEncoder(nn.Module):
                 else:
                     pointcloud_encoder_cfg.in_channels = 3
                     self.extractor = PointNetAttention(**pointcloud_encoder_cfg)
+            elif self.pointnet_type == 'point_transformer':
+                self.extractor = PointTransformerSeg(
+                    npoints=1024,  # without goal pcd
+                    n_c=pointcloud_encoder_cfg.out_channels,
+                    nblocks=3,
+                    nneighbor=16,
+                    d_points=3,
+                    transformer_dim=32,
+                    base_dim=8,
+                    downsample_ratio=8,
+                    hidden_dim=128
+                )
+                self.extractor = replace_bn_with_gn(self.extractor, features_per_group=4)
             else:
                 raise NotImplementedError
             
@@ -689,10 +711,13 @@ class TAX3DEncoder(nn.Module):
                 pn_feat = self.extractor(points)    # B * out_channel
             else:
                 pn_feat = self.extractor(points[:, :n_action_pcd+n_anchor_pcd, :])
+        
         elif self.extractor_mode == "incremental":
             raise NotImplementedError
+        
         elif self.extractor_mode == "all":
             raise NotImplementedError
+        
         else:
             raise NotImplementedError
             
