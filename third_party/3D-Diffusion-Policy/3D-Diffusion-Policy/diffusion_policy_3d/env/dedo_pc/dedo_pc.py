@@ -49,6 +49,7 @@ class DedoEnv:
         args.pcd = True
         args.logdir = 'rendered'
         args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
+        # args.cam_config_path = "/home/yingyuan/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json"
         args.viz = viz
         args_postprocess(args)
 
@@ -141,10 +142,9 @@ class DedoEnv:
                 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
+            action_pcd = downsample_with_fps(action_pcd, int(self.num_points / 2))
+            anchor_pcd = downsample_with_fps(anchor_pcd, int(self.num_points / 2))
             point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
-
-            if point_cloud.shape[0] > self.num_points:
-                point_cloud = downsample_with_fps(point_cloud, self.num_points)
             obs_dict = {
                 'point_cloud': point_cloud,
                 'agent_pos': obs['gripper_state'],

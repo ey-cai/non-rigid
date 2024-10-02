@@ -189,6 +189,8 @@ class DedoRunner(BaseRunner):
             rot = demo['rot']
             trans = demo['trans']
             deform_params = demo['deform_params'][()]
+            goal_pc = demo['action_pc'] + demo['flow']
+            goal_pc = torch.from_numpy(goal_pc).to(device=device)
 
             obs = env.reset(
                 rigid_rot=rot,
@@ -223,6 +225,27 @@ class DedoRunner(BaseRunner):
                         obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
                         obs_dict_input['action_pcd'] = obs_dict['point_cloud'][:, :512, :].unsqueeze(0)
                         obs_dict_input['anchor_pcd'] = obs_dict['point_cloud'][:, 512:, :].unsqueeze(0)
+
+                        bsz = obs_dict_input['anchor_pcd'].shape[0]
+                        hor = obs_dict_input['anchor_pcd'].shape[1]
+                        obs_dict_input['goal_pcd'] = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)
+                        obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],
+                                                                   obs_dict_input['goal_pcd']], dim=-2)
+
+                        # import open3d as o3d
+                        # import numpy as np
+                        # point_geometry = o3d.geometry.PointCloud()
+                        # goal_geometry = o3d.geometry.PointCloud()
+                        # anchor_geometry = o3d.geometry.PointCloud()
+                        # point_geometry.points = o3d.utility.Vector3dVector(obs_dict_input['action_pcd'][0][0].cpu().numpy())
+                        # point_geometry.paint_uniform_color(np.array([0, 0, 1]))
+                        # goal_geometry.points = o3d.utility.Vector3dVector(obs_dict_input['goal_pcd'][0][0].cpu().numpy())
+                        # goal_geometry.paint_uniform_color(np.array([1, 0, 0]))
+                        # anchor_geometry.points = o3d.utility.Vector3dVector(obs_dict_input['anchor_pcd'][0][0].cpu().numpy())
+                        # anchor_geometry.paint_uniform_color(np.array([0, 1, 0]))
+                        # o3d.visualization.draw_geometries([point_geometry, goal_geometry, anchor_geometry])
+                        # exit()
+
                         action_dict = policy.predict_action(obs_dict_input)
 
                 # device transfer

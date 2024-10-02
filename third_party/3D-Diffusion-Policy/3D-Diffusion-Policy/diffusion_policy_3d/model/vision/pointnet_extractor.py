@@ -672,21 +672,11 @@ class TAX3DEncoder(nn.Module):
 
     def forward(self, observations: Dict) -> torch.Tensor:
         points = observations[self.point_cloud_key]
-        if self.action_pcd_key in observations:
-            action_pcd = observations[self.action_pcd_key]
-        else:
-            action_pcd = points[:, :512, :]
-
-        if self.anchor_pcd_key in observations:
-            anchor_pcd = observations[self.anchor_pcd_key]
-        else:
-            anchor_pcd = points[:, 512:1024, :]
+        action_pcd = points[:, :512, :]
+        anchor_pcd = points[:, 512:1024, :]
 
         if self.use_goal_pc:
-            if self.goal_pcd_key in observations:
-                goal_pcd = observations[self.goal_pcd_key]
-            else:
-                goal_pcd = torch.zeros((points.shape[0], 580, points.shape[2]))  # TODO for kyutae: replace this with predicted goal point cloud, should be something like self.tax3d(action_pcd, anchor_pcd)
+            goal_pcd = points[:, 1024:, :]  # TODO for kyutae: replace this with predicted goal point cloud, should be something like self.tax3d(action_pcd, anchor_pcd)
 
         n_action_pcd = action_pcd.shape[1]
         n_anchor_pcd = anchor_pcd.shape[1]
@@ -708,6 +698,18 @@ class TAX3DEncoder(nn.Module):
                     one_hot[:, n_action_pcd+n_anchor_pcd:, 2] = 1
                 points = torch.cat([points, one_hot], dim=-1)
             if self.use_goal_pc:
+
+                # import open3d as o3d
+                # import numpy as np
+                # point_geometry = o3d.geometry.PointCloud()
+                # goal_geometry = o3d.geometry.PointCloud()
+                # point_geometry.points = o3d.utility.Vector3dVector(points[0].cpu().numpy())
+                # point_geometry.paint_uniform_color(np.array([0, 0, 1]))
+                # goal_geometry.points = o3d.utility.Vector3dVector(goal_pcd[0].cpu().numpy())
+                # goal_geometry.paint_uniform_color(np.array([1, 0, 0]))
+                # o3d.visualization.draw_geometries([point_geometry, goal_geometry])
+                # exit()
+                
                 pn_feat = self.extractor(points)    # B * out_channel
             else:
                 pn_feat = self.extractor(points[:, :n_action_pcd+n_anchor_pcd, :])
