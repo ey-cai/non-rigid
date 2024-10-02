@@ -71,7 +71,7 @@ class DedoDataset(BaseDataset):
 
         self.replay_buffer = ReplayBuffer.copy_from_path(
             train_zarr_path, keys=['point_cloud', 'state', 'action'])
-        # breakpoint()
+        
         train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
@@ -159,7 +159,6 @@ class DedoDataset(BaseDataset):
         agent_pos = sample['state'].astype(np.float32)
         action = sample['action'].astype(np.float32)
         point_cloud = sample['point_cloud'].astype(np.float32)
-
         data = {
             'obs': {
                 'point_cloud': point_cloud, # T, 1024, 3, no rgb
@@ -183,7 +182,6 @@ class DedoDataset(BaseDataset):
             agent_pos = torch_data['obs']['agent_pos']
             action = torch_data['action']
             point_cloud_mean = point_cloud.mean(dim=[0, 1], keepdim=True)
-
             # transform point cloud
             point_cloud = T.transform_points(point_cloud - point_cloud_mean) + point_cloud_mean
 

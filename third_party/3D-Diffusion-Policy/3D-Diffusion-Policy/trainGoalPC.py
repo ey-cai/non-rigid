@@ -110,7 +110,6 @@ class TrainDP3Workspace:
         # configure validation dataset
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
-
         self.model.set_normalizer(normalizer)
         if cfg.training.use_ema:
             self.ema_model.set_normalizer(normalizer)
@@ -401,7 +400,7 @@ class TrainDP3Workspace:
         train_dataset = DedoDataset(dataset_dir + "/train_tax3d")
         val_dataset = DedoDataset(dataset_dir + "/val_tax3d")
         val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
- 
+        
         # load the latest checkpoint
 
         cfg = copy.deepcopy(self.cfg)
@@ -418,9 +417,6 @@ class TrainDP3Workspace:
         if lastest_ckpt_path.is_file():
             cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
             self.load_checkpoint(path=lastest_ckpt_path)
-            print('yppppppppp')
-        else:
-            breakpoint()
 
         # configure env
         env_runner: BaseRunner

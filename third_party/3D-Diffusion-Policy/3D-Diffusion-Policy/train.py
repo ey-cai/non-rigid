@@ -401,7 +401,6 @@ class TrainDP3Workspace:
         train_dataset = DedoDataset(dataset_dir + "/train_tax3d")
         val_dataset = DedoDataset(dataset_dir + "/val_tax3d")
         val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
- 
         # load the latest checkpoint
 
         cfg = copy.deepcopy(self.cfg)
@@ -418,11 +417,8 @@ class TrainDP3Workspace:
         if lastest_ckpt_path.is_file():
             cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
             self.load_checkpoint(path=lastest_ckpt_path)
-            print('yppppppppp')
-        else:
-            breakpoint()
-
-        # configure env
+ 
+         # configure env
         env_runner: BaseRunner
         env_runner = hydra.utils.instantiate(
             cfg.task.env_runner,

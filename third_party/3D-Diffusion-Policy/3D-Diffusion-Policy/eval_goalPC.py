@@ -25,7 +25,6 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
         'diffusion_policy_3d', 'config'))
 )
 def main(cfg):
-
     if cfg.name == "tax3d":
         workspace = EvalTAX3DWorkspace(cfg)
     else:
