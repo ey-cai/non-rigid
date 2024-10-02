@@ -438,7 +438,7 @@ class SceneDisplacementModule(DenseDisplacementDiffusionModule):
         super().__init__(network, cfg)
 
     def get_model_kwargs(self, batch, num_samples=None):
-        pc_action = batch["pc_action"]
+        pc_action = batch["pc_action"].to(self.device)
         if num_samples is not None:
             # expand point clouds if num_samples is provided; used for WTA predictions
             pc_action = expand_pcd(pc_action, num_samples)
@@ -483,8 +483,8 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
         super().__init__(network, cfg)
 
     def get_model_kwargs(self, batch, num_samples=None):
-        pc_action = batch["pc_action"]
-        pc_anchor = batch["pc_anchor"]
+        pc_action = batch["pc_action"].to(self.device)
+        pc_anchor = batch["pc_anchor"].to(self.device)
         if num_samples is not None:
             # expand point clouds if num_samples is provided; used for WTA predictions
             pc_action = expand_pcd(pc_action, num_samples)

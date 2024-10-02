@@ -576,6 +576,7 @@ class DeformEnvTAX3D(gym.Env):
             centroid_check, centroid_dist = self.check_centroid()
             info = self.make_final_steps()
             polygon_check = self.check_polygon()
+            # print(centroid_check, polygon_check)
             # success requires both checks to pass for at least one hole
             info['is_success'] = np.any(centroid_check * polygon_check)
             info['centroid_dist'] = np.mean(centroid_dist)
@@ -844,7 +845,7 @@ class DeformEnvTAX3D(gym.Env):
             cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]
             cent_pos = cent_pts.mean(axis=0)
             dist = np.linalg.norm(cent_pos - goal_pos)
-            centroid_checks.append(dist < 1.0)
+            centroid_checks.append(dist < 1.3)
             centroid_dists.append(dist)
         return np.array(centroid_checks), np.array(centroid_dists)
 

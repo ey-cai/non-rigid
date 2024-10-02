@@ -71,7 +71,7 @@ else
   echo "Invalid model type."
 fi
 
-WANDB_MODE=$WANDB_MODE python train_diff.py \
+WANDB_MODE=$WANDB_MODE python train.py \
   $MODEL_PARAMS \
   $DATASET_PARAMS \
   wandb.group=proc_cloth \

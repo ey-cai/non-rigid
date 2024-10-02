@@ -46,7 +46,7 @@ dataset:
   cloth_pose: fixed
   anchor_geometry: single
   anchor_pose: random
-  hole: single
+  hole: double
 
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}

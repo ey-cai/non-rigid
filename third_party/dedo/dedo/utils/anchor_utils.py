@@ -121,12 +121,12 @@ def command_anchor_position(sim, anchor_bullet_id, tgt_pos, tax3d=False, task='p
     if tax3d:
         # for tax3d models, bias towards target position
         if task == 'proccloth':
-            raw_force = 35.0 * vel_diff + CTRL_PD_KD_POS * pos_diff
-            # raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
+            # raw_force = 35.0 * vel_diff + CTRL_PD_KD_POS * pos_diff
+            raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
         elif task == 'hangbag':
-            pos_diff_mag = np.linalg.norm(pos_diff)
-            if pos_diff_mag > 0.5:
-                pos_diff = (pos_diff / pos_diff_mag) * max(pos_diff_mag, 3.5)
+            # pos_diff_mag = np.linalg.norm(pos_diff)
+            # if pos_diff_mag > 0.5:
+            #     pos_diff = (pos_diff / pos_diff_mag) * max(pos_diff_mag, 3.5)
             raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
         else:
             raise ValueError('Unknown task.')
@@ -134,6 +134,7 @@ def command_anchor_position(sim, anchor_bullet_id, tgt_pos, tax3d=False, task='p
         raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
 
     force = np.clip(raw_force, -1.0 * CTRL_MAX_FORCE, CTRL_MAX_FORCE)
+    # print(vel_diff, pos_diff, force)
     sim.applyExternalForce(
         anchor_bullet_id, -1, force.tolist(), [0, 0, 0], pybullet.LINK_FRAME)
     return raw_force

@@ -439,6 +439,13 @@ class DeformablePlacementDataset(data.Dataset):
             anchor_pc = anchor_pc.squeeze(0)
             anchor_seg = anchor_seg[anchor_pc_indices.squeeze(0)]
 
+        # randomly occlude the anchor
+        if self.dataset_cfg.anchor_occlusion:
+            anchor_pc_temp, temp_mask = plane_occlusion(anchor_pc, return_mask=True)
+            if anchor_pc_temp.shape[0] > self.sample_size_anchor:
+                anchor_pc = anchor_pc_temp
+                anchor_seg = anchor_seg[temp_mask]
+
         # scene-level dataset
         if self.scene:
             scene_pc = torch.cat([action_pc, anchor_pc], dim=0)

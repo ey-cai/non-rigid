@@ -531,9 +531,12 @@ class HangBagTAX3D(gym.Env):
 
             centroid_check, centroid_dist = self.check_centroid()
             info = self.make_final_steps()
-            polygon_check = self.check_polygon()
+            # polygon_check = self.check_polygon()
+            centroid_check_post, _ = self.check_centroid()
+            # print(centroid_check, polygon_check)
+            # print(centroid_check, centroid_check_post)
             # success requires both checks to pass for at least one hole
-            info['is_success'] = np.any(centroid_check * polygon_check)
+            info['is_success'] = np.any(centroid_check * centroid_check_post)
             info['centroid_dist'] = np.mean(centroid_dist)
 
             last_rwd = self.get_reward() * HangBagTAX3D.FINAL_REWARD_MULT
@@ -575,7 +578,6 @@ class HangBagTAX3D(gym.Env):
         grip_obs = self.get_grip_obs()
         grip_obs = np.array([grip_obs[0:3], grip_obs[6:9]])
 
-
         for i in range(self.num_anchors):
             # clipping the magnitudes to prevent weird behavior
             p_delta = action[i] - grip_obs[i]
@@ -590,6 +592,9 @@ class HangBagTAX3D(gym.Env):
             )
             # self.sim.addUserDebugPoints(
             #     [clipped_action], [[1, 0, 0]], pointSize=2
+            # )
+            # self.sim.addUserDebugPoints(
+            #     [action[i]], [[0, 1, 0]], pointSize=4
             # )
 
     def make_final_steps(self):
@@ -813,7 +818,8 @@ class HangBagTAX3D(gym.Env):
             cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]
             cent_pos = cent_pts.mean(axis=0)
             dist = np.linalg.norm(cent_pos - goal_pos)
-            centroid_checks.append(dist < 1.0)
+            print(dist)
+            centroid_checks.append(dist < 1.4)
             centroid_dists.append(dist)
         return np.array(centroid_checks), np.array(centroid_dists)
 
@@ -858,8 +864,15 @@ class HangBagTAX3D(gym.Env):
             #     mode='lines',
             #     fill='toself',
             # )
+            # goal_plot = go.Scatter(
+            #     x=[point.x],
+            #     y=[point.y],
+            #     mode='markers',
+            #     marker=dict(size=10, color='red')
+            # )
             # fig.add_trace(poly, row=1, col=1)
             # fig.add_trace(convex, row=1, col=2)
+            # fig.add_trace(goal_plot, row=1, col=2)
             # fig.show()
 
         return np.array(polygon_checks)

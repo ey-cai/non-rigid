@@ -33,3 +33,5 @@ action_transform_type: identity # Transformation type to apply to demonstrations
 anchor_transform_type: random_flat_upright # Transformation type to apply to demonstrations
 translation_variance: 0.0 # Translation variance of the demo transformation
 rotation_variance: 180 # Rotation variance of the demo transformation
+
+anchor_occlusion: False # Whether to randomly occlude the anchor during training

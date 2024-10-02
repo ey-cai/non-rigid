@@ -158,7 +158,20 @@ class DedoRunner(BaseRunner):
         dtype = policy.dtype
         env = self.env
 
+        ##################################################
+        # SOME REALLY HACKY PRE-PROCESSING STUFF
+        ##################################################
+
+        # still determining right amount of steps for episode
         output_save_dir = os.path.join(self.output_dir, dataset_name)
+        # output_save_dir = os.path.join(self.output_dir, f"{dataset_name}_200_original_gains")
+        # self.env.env.env.max_episode_len = 200
+
+        # set environment to randomize cloth color
+
+        ##################################################
+        # END OF REALLY HACKY PRE-PROCESSING STUFF
+        ##################################################
 
         # creating directory for outputs
         if os.path.exists(output_save_dir):

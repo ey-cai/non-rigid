@@ -37,8 +37,10 @@ class DedoEnv:
 
         if task_name == "proccloth":
             args.env = 'HangProcCloth-v0'
+            args.max_episode_len = 300
         elif task_name == "hangbag":
             args.env = 'HangBag-v0'
+            args.max_episode_len = 300
         else:
             raise ValueError(f"Unknown task name: {task_name}")
         # TODO": this is the error
