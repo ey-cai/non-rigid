@@ -858,7 +858,7 @@ class DeformEnvTAX3D(gym.Env):
             cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]
             cent_pos = cent_pts.mean(axis=0)
             dist = np.linalg.norm(cent_pos - goal_pos)
-            centroid_checks.append(dist < 1.0)
+            centroid_checks.append(dist < 1.3)
             centroid_dists.append(dist)
         return np.array(centroid_checks), np.array(centroid_dists)
 

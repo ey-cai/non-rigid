@@ -1,0 +1,58 @@
+name: dedo
+
+task_name: dedo
+
+shape_meta: &shape_meta
+  obs:
+    point_cloud:
+      shape: [1024, 3]
+      type: point_cloud
+    agent_pos:
+      shape: [12]
+      type: low_dim
+  action:
+    shape: [6]
+
+env_runner:
+  _target_: diffusion_policy_3d.env_runner.dedo_runner_goalPC.DedoRunner # changed from dedo_runner to my dego_runner_goalPC
+  n_episodes: 20
+  # max_steps: 50
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  task_name: proccloth
+  viz: False
+  control_type: position
+
+inference:
+  seed: 1
+  split: train
+
+dataset:
+  _target_: diffusion_policy_3d.dataset.dedo_dataset.DedoDataset
+  # zarr_path: /home/ktsim/Projects/non-rigid/data/proccloth/train.zarr
+  # zarr_path: ~/Documents/3D-Diffusion-Policy/3D-Diffusion-Policy/data/dedo_single_cloth_random_expert.zarr
+  # zarr_path: ~/Documents/data/dedo_single_cloth_random_expert.zarr
+  # TODO: change this to be a directory, and load the val and val ood from their separate files
+
+
+  # root_dir: ~/Documents/data/proccloth
+  root_dir: /home/yingyuan/non-rigid/datasets/rand_anchor_pose_new
+  # root_dir: ~/datasets/nrp/ProcCloth
+  # root_dir: ~/Documents/data
+  # root_dir: ~/Documents/data/tax3d
+
+  cloth_geometry: single
+  cloth_pose: fixed
+  anchor_geometry: single
+  anchor_pose: random
+  hole: single
+
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  # val_ratio: 0.02
+  val_ratio: 0.0
+  max_train_episodes: 90 # TODO: may need to modify this
+  random_augment: True
