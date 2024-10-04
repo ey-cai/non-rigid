@@ -25,11 +25,11 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='data', help='directory to save data')
-    parser.add_argument('--num_episodes', type=int, default=3, help='number of episodes to run')
+    parser.add_argument('--num_episodes', type=int, default=40, help='number of episodes to run')
     parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
     parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
     # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
-    parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
+    parser.add_argument('--split', type=str, default='val_ood', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
     parser.add_argument('--random_cloth_pose', action='store_true', help='randomize cloth pose')
@@ -81,7 +81,8 @@ def main(cfg):
     random_cloth_geometry = args.random_cloth_geometry
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
-    random_anchor_pose = args.random_anchor_pose
+    # random_anchor_pose = args.random_anchor_pose
+    random_anchor_pose = True
     cloth_hole = args.cloth_hole
     tag = args.tag
 
@@ -229,7 +230,6 @@ def main(cfg):
                 }
             
             # randomizing anchor pose
-            random_anchor_pose = True
             if random_anchor_pose:
                 if split == 'val_ood':
                     rigid_rot, rigid_trans = env.random_anchor_transform_ood()
@@ -441,7 +441,7 @@ def main(cfg):
     cprint(f'anchor point cloud shape: {anchor_pcd_arrays.shape}, range: [{np.min(anchor_pcd_arrays)}, {np.max(anchor_pcd_arrays)}]', 'green')
     cprint(f'point cloud shape: {point_cloud_arrays.shape}, range: [{np.min(point_cloud_arrays)}, {np.max(point_cloud_arrays)}]', 'green')
     cprint(f'action shape: {action_arrays.shape}, range: [{np.min(action_arrays)}, {np.max(action_arrays)}]', 'green')
-    print(f'goal truth shape: {ground_truth_arrays.shape}, range: [{np.min(ground_truth_arrays)}, {np.max(ground_truth_arrays)}]', 'green')
+    cprint(f'goal truth shape: {ground_truth_arrays.shape}, range: [{np.min(ground_truth_arrays)}, {np.max(ground_truth_arrays)}]', 'green')
     cprint(f'tax3d goal point cloud shape: {tax3d_arrays.shape}, range: [{np.min(tax3d_arrays)}, {np.max(tax3d_arrays)}]', 'green')
     cprint(f'Saved zarr file to {save_dir}', 'green')
 

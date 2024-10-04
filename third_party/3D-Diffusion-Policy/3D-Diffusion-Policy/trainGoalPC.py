@@ -32,7 +32,7 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 
-from diffusion_policy_3d.policy.tax3d_goalPC import TAX3D
+from diffusion_policy_3d.policy.tax3d import TAX3D
 
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
@@ -143,22 +143,23 @@ class TrainDP3Workspace:
         if env_runner is not None:
             assert isinstance(env_runner, BaseRunner)
         
-        cfg.logging.name = str(cfg.logging.name)
-        cprint("-----------------------------", "yellow")
-        cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
-        cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
-        cprint("-----------------------------", "yellow")
-        # configure logging
-        wandb_run = wandb.init(
-            dir=str(self.output_dir),
-            config=OmegaConf.to_container(cfg, resolve=True),
-            **cfg.logging
-        )
-        wandb.config.update(
-            {
-                "output_dir": self.output_dir,
-            }
-        )
+        if cfg.enable_wandb:
+            cfg.logging.name = str(cfg.logging.name)
+            cprint("-----------------------------", "yellow")
+            cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
+            cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
+            cprint("-----------------------------", "yellow")
+            # configure logging
+            wandb_run = wandb.init(
+                dir=str(self.output_dir),
+                config=OmegaConf.to_container(cfg, resolve=True),
+                **cfg.logging
+            )
+            wandb.config.update(
+                {
+                    "output_dir": self.output_dir,
+                }
+            )
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
@@ -234,7 +235,8 @@ class TrainDP3Workspace:
                     is_last_batch = (batch_idx == (len(train_dataloader)-1))
                     if not is_last_batch:
                         # log of last step is combined with validation and rollout
-                        wandb_run.log(step_log, step=self.global_step)
+                        if cfg.enable_wandb:
+                            wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
                     if (cfg.training.max_train_steps is not None) \
@@ -711,14 +713,14 @@ class EvalTAX3DWorkspace:
         #     if isinstance(value, float):
         #         cprint(f"{key}: {value:.4f}", 'magenta')
 
-        pc2 = env_runner.run_dataset(policy, val_dataset, 'val')
+        # pc2 = env_runner.run_dataset(policy, val_dataset, 'val')
 
         # cprint(f"---------------- Eval Results for Val. --------------", 'magenta')
         # for key, value in runner_log.items():
         #     if isinstance(value, float):
         #         cprint(f"{key}: {value:.4f}", 'magenta')
             
-        pc3 = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
+        # pc3 = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
 
         # cprint(f"---------------- Eval Results for Val. OOD --------------", 'magenta')
         # for key, value in runner_log.items():
@@ -727,8 +729,8 @@ class EvalTAX3DWorkspace:
 
         # final = pc1 + pc2 + pc3
         torch.save(pc1, 'tensor_list_train.pt')
-        torch.save(pc2, 'tensor_list_val.pt')
-        torch.save(pc3, 'tensor_list_val_ood.pt')
+        # torch.save(pc2, 'tensor_list_val.pt')
+        # torch.save(pc3, 'tensor_list_val_ood.pt')
 
     @property
     def output_dir(self):

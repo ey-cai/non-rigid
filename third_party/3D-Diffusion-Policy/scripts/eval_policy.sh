@@ -16,7 +16,11 @@ exp_name=${task_name}-${alg_name}-${addition_info}
 run_dir="/home/ktsim/Projects/non-rigid/data/outputs/${exp_name}_seed${seed}"
 
 gpu_id=${5}
-
+enable_wandb=${6}
+algo_version=${7}
+goal_pc_version=${8}
+pointnet_type=${9}
+use_onehot=${10}
 
 cd 3D-Diffusion-Policy
 
@@ -30,8 +34,16 @@ python eval.py --config-name=${config_name}.yaml \
                             training.device="cuda:0" \
                             exp_name=${exp_name} \
                             logging.mode=${wandb_mode} \
-                            checkpoint.save_ckpt=${save_ckpt}
+                            checkpoint.save_ckpt=${save_ckpt}\
+                            enable_wandb=${enable_wandb}\
+                            policy.pointcloud_encoder_cfg.version=${algo_version} \
+                            policy.pointcloud_encoder_cfg.extractor_mode=simple \
+                            policy.pointcloud_encoder_cfg.goal_pc_version=${goal_pc_version} \
+                            policy.pointnet_type=${pointnet_type} \
+                            policy.pointcloud_encoder_cfg.use_onehot=${use_onehot}
 
+
+                                
 
 
                                 

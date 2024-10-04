@@ -16,7 +16,7 @@ from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUn
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
-from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder
+from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder, TAX3DEncoder
 
 class DP3(BasePolicy):
     def __init__(self, 
@@ -59,14 +59,24 @@ class DP3(BasePolicy):
         obs_dict = dict_apply(obs_shape_meta, lambda x: x['shape'])
 
 
-        obs_encoder = DP3Encoder(observation_space=obs_dict,
-                                                   img_crop_shape=crop_shape,
+        if pointcloud_encoder_cfg['version'] == 'dp3':
+            obs_encoder = DP3Encoder(observation_space=obs_dict,
+                                                img_crop_shape=crop_shape,
                                                 out_channel=encoder_output_dim,
                                                 pointcloud_encoder_cfg=pointcloud_encoder_cfg,
                                                 use_pc_color=use_pc_color,
                                                 pointnet_type=pointnet_type,
                                                 )
-
+        elif pointcloud_encoder_cfg['version'] == 'tax3d':
+            obs_encoder = TAX3DEncoder(observation_space=obs_dict,
+                                                img_crop_shape=crop_shape,
+                                                out_channel=encoder_output_dim,
+                                                pointcloud_encoder_cfg=pointcloud_encoder_cfg,
+                                                use_pc_color=use_pc_color,
+                                                pointnet_type=pointnet_type,
+                                                )
+        else:
+            raise NotImplementedError
         # create diffusion model
         obs_feature_dim = obs_encoder.output_shape()
         input_dim = action_dim + obs_feature_dim

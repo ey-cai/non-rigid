@@ -66,11 +66,10 @@ class DedoDataset(BaseDataset):
         )
         self.zarr_dir = os.path.join(root_dir, dataset_dir)
         train_zarr_path = os.path.join(self.zarr_dir, 'train.zarr')
-        goalPC_path = os.path.join(self.zarr_dir, 'tensor_list_train.pt')
 
 
         self.replay_buffer = ReplayBuffer.copy_from_path(
-            train_zarr_path, keys=['point_cloud', 'state', 'action'])
+            train_zarr_path, keys=['point_cloud', 'state', 'action', 'ground_truth', 'tax3d' ])
         
         train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.sampler = SequenceSampler(
@@ -113,7 +112,7 @@ class DedoDataset(BaseDataset):
         val_set = copy.copy(self)
         val_zarr_path = os.path.join(self.zarr_dir, 'val.zarr')
         val_set.replay_buffer = ReplayBuffer.copy_from_path(
-            val_zarr_path, keys=['point_cloud', 'state', 'action'])
+            val_zarr_path, keys=['point_cloud', 'state', 'action', 'ground_truth', 'tax3d'])
         val_mask = np.ones(val_set.replay_buffer.n_episodes, dtype=bool)
         val_set.sampler = SequenceSampler(
             replay_buffer=val_set.replay_buffer,
@@ -143,6 +142,8 @@ class DedoDataset(BaseDataset):
             'action': self.replay_buffer['action'],
             'agent_pos': self.replay_buffer['state'][...,:],
             'point_cloud': self.replay_buffer['point_cloud'],
+            'ground_truth': self.replay_buffer['ground_truth'],
+            'tax3d': self.replay_buffer['tax3d']
         }
         normalizer = LinearNormalizer()
         normalizer.fit(data, last_n_dims=1, mode=mode,**kwargs)
@@ -159,10 +160,15 @@ class DedoDataset(BaseDataset):
         agent_pos = sample['state'].astype(np.float32)
         action = sample['action'].astype(np.float32)
         point_cloud = sample['point_cloud'].astype(np.float32)
+        ground_truth = sample['ground_truth'].astype(np.float32)
+        tax3d = sample['tax3d'].astype(np.float32)
+        
         data = {
             'obs': {
                 'point_cloud': point_cloud, # T, 1024, 3, no rgb
                 'agent_pos': agent_pos, # T, D_pos
+                'ground_truth':ground_truth, # T, 580, 3
+                'tax3d': tax3d # T, 580, 3
             },
             'action': action # T, D_action
         }
@@ -178,12 +184,20 @@ class DedoDataset(BaseDataset):
         if self.random_augment:
             # sample transform and compute mean across all timesteps
             T = random_so2()
-            point_cloud = torch_data['obs']['point_cloud']
+            point_cloud = torch_data['obs']['point_cloud'] # includes action and anchor
             agent_pos = torch_data['obs']['agent_pos']
             action = torch_data['action']
-            point_cloud_mean = point_cloud.mean(dim=[0, 1], keepdim=True)
+            # ground_truth = torch_data['obs']['ground_truth'] Used later for training with ground truth
+            tax3d = torch_data['obs']['tax3d']
+
+            n_point_cloud = point_cloud.shape[1]
+            n_tax3d = tax3d.shape[1]
+            
+            all_point_cloud = torch.cat([point_cloud, tax3d], dim=1)
+
+            point_cloud_mean = all_point_cloud.mean(dim=[0, 1], keepdim=True)
             # transform point cloud
-            point_cloud = T.transform_points(point_cloud - point_cloud_mean) + point_cloud_mean
+            all_point_cloud = T.transform_points(all_point_cloud - point_cloud_mean) + point_cloud_mean
 
             # transform agent pos
             agent_pos[:, 0:3] = T.transform_points(agent_pos[:, 0:3] - point_cloud_mean) + point_cloud_mean
@@ -196,7 +210,7 @@ class DedoDataset(BaseDataset):
             action[:, 3:6] = T.transform_points(action[:, 3:6] - point_cloud_mean) + point_cloud_mean
 
             # update torch data
-            torch_data['obs']['point_cloud'] = point_cloud
+            torch_data['obs']['point_cloud'] = all_point_cloud[:, :, :]
             torch_data['obs']['agent_pos'] = agent_pos
             torch_data['action'] = action
         return torch_data
