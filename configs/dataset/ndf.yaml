@@ -1,8 +1,10 @@
-name: ndf_point
+name: ndf
 data_dir: /home/odonca/workspace/rpad/data/equivariant_pose_graph/data/mug_place
 # data_dir: /home/odonca/workspace/rpad/data/rpdiff/data/overfit_1r_1m_1d
-type: ndf_point
+type: point
+
 scene: False
+world_frame: True
 
 ###################################################
 # General Dataset Parameters
@@ -16,6 +18,7 @@ val_use_defaults: True # Use default values for some parameters on the validatio
 # Point Cloud Transformation Parameters
 ###################################################
 center_type: anchor_center # [action_center, anchor_center, anchor_random, none], centers the point clouds w.r.t. the action, anchor, or no centering
+action_context_center_type: center # [center, random, none], centers the action context point clouds
 sample_size_action: 512 # Number of points to downsample to
 sample_size_anchor: 512 # Number of points to downsample to for the anchor
 downsample_type: 2N_random_fps # [fps, random], downsampling method
@@ -32,7 +35,7 @@ anchor_rotation_variance: 180 # Rotation variance of the demo transformation
 ###################################################
 # Distractor parameters
 ###################################################
-distractor_anchor_pcds: 1 # Number of distractor anchor pcds to generate
+distractor_anchor_pcds: 0 # Number of distractor anchor pcds to generate
 distractor_transform_type: random_flat_upright # Transformation type to apply when generating distractor pcds
 distractor_translation_variance: 0.5 # Translation variance of the distractor transformation
 distractor_rotation_variance: 180 # Rotation variance of the distractor transformation

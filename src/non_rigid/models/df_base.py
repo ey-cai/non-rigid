@@ -17,7 +17,7 @@ from pytorch3d.transforms import Transform3d
 from torch import nn, optim
 from torch_geometric.nn import fps
 
-from non_rigid.metrics.error_metrics import get_pred_pcd_rigid_errors
+from non_rigid.metrics.rigid_metrics import get_pred_pcd_rigid_errors
 from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pc_nn
 from non_rigid.models.dit.diffusion import create_diffusion
 from non_rigid.models.dit.models import DiT_PointCloud_Unc as DiT_pcu

@@ -18,13 +18,18 @@ shift
 shift
 COMMAND=$@
 
-
+# relative frame cross point
 if [ $MODEL_TYPE == "cross_point_relative" ]; then
   echo "Evaluating relative point model at checkpoint $CHECKPOINT with command: $COMMAND."
 
   MODEL_PARAMS="model=df_cross model.type=point"
-  DATASET_PARAMS="dataset=ndf_point dataset.type=ndf_point dataset.scene=False"
+  DATASET_PARAMS="dataset=ndf dataset.type=point dataset.scene=False dataset.world_frame=False"
+# relative frame cross flow
+elif [ $MODEL_TYPE == "cross_flow_relative" ]; then
+  echo "Evaluating relative flow model at checkpoint $CHECKPOINT with command: $COMMAND."
 
+  MODEL_PARAMS="model=df_cross model.type=flow"
+  DATASET_PARAMS="dataset=ndf dataset.type=flow dataset.scene=False dataset.world_frame=False"
 fi
 
 python scripts/eval_rigid.py \

@@ -15,7 +15,7 @@ from non_rigid.utils.augmentation_utils import maybe_apply_augmentations
 from non_rigid.utils.transform_utils import random_se3
 from non_rigid.utils.pointcloud_utils import downsample_pcd, get_multi_anchor_scene
 
-
+'''
 @dataclass
 class RigidDatasetCfg:
     name: str = "rigid"
@@ -86,15 +86,10 @@ class RigidDatasetCfg:
     # Radius of the occluding ball
     action_ball_radius: float = 0.0
     anchor_ball_radius: float = 0.0
-
+'''
 
 class RigidPointDataset(data.Dataset):
-    def __init__(
-        self,
-        root: Path,
-        type: str = "train",
-        dataset_cfg: RigidDatasetCfg = RigidDatasetCfg(),
-    ):
+    def __init__(self, root, dataset_cfg, type):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
         self.root = root
@@ -202,12 +197,7 @@ class RigidPointDataset(data.Dataset):
 
 
 class RigidFlowDataset(data.Dataset):
-    def __init__(
-        self,
-        root: Path,
-        type: str = "train",
-        dataset_cfg: RigidDatasetCfg = RigidDatasetCfg(),
-    ):
+    def __init__(self, root, dataset_cfg, type):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
         self.root = root
@@ -314,19 +304,22 @@ class RigidFlowDataset(data.Dataset):
         }
 
 
-class NDFPointDataset(data.Dataset):
-    def __init__(
-        self,
-        root: Path,
-        type: str = "train",
-        dataset_cfg: RigidDatasetCfg = RigidDatasetCfg(),
-    ):
+class NDFDataset(data.Dataset):
+    def __init__(self, root, dataset_cfg, type):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
         self.root = root
         self.type = type
         self.dataset_cfg = dataset_cfg
 
+        # setting sample sizes
+        # NOTE: scene is not implemented for now, thus not seg
+        self.scene = self.dataset_cfg.scene
+        self.sample_size_action = self.dataset_cfg.sample_size_action
+        self.sample_size_anchor = self.dataset_cfg.sample_size_anchor
+        self.world_frame = self.dataset_cfg.world_frame
+        
+        # setting dataset meta info
         dir_type = self.type if self.type == "train" else "test"
         self.dataset_dir = self.root / f"{dir_type}_data/renders"
         print(f"Loading NDF dataset from {self.dataset_dir}")
@@ -487,28 +480,42 @@ class NDFPointDataset(data.Dataset):
         T_action2goal = T0.inverse().compose(
             Translate(goal_points_action_mean.unsqueeze(0))
         )
-        T_aug_action2goal_list = []
-        for T_distractor in T_distractor_list:
-            T_aug_action2goal = T_action2goal.compose(
-                T1.inverse()
-                .compose(Translate(center.unsqueeze(0)))
-                .compose(T_distractor)
-                .compose(Translate(-center.unsqueeze(0)))
-                .compose(T1)
-            )
-            T_aug_action2goal_list.append(T_aug_action2goal)
+
+        # Get Goal2World and Action2World transforms
+        T_goal2world = T1.inverse().compose(
+            Translate(center.unsqueeze(0))
+        )
+
+        T_action2world = T_goal2world.compose(T_action2goal)
+
+
+        flow = goal_points_action - points_action
 
         data = {
             "pc": goal_points_action,  # Action points in goal position
             "pc_anchor": goal_points_anchor,  # Anchor points in goal position
             "pc_action": points_action,  # Action points for context
+            "flow": flow,
             "T0": T0.get_matrix().squeeze(0).T,
             "T1": T1.get_matrix().squeeze(0).T,
             "T_action2goal": T_action2goal.get_matrix().squeeze(0).T,
+            "T_goal2world" : T_goal2world.get_matrix().squeeze(0),
+            "T_action2world" : T_action2world.get_matrix().squeeze(0),
         }
 
         # If we have distractor anchor point clouds, add their transforms
         if self.dataset_cfg.distractor_anchor_pcds > 0:
+            T_aug_action2goal_list = []
+            for T_distractor in T_distractor_list:
+                T_aug_action2goal = T_action2goal.compose(
+                    T1.inverse()
+                    .compose(Translate(center.unsqueeze(0)))
+                    .compose(T_distractor)
+                    .compose(Translate(-center.unsqueeze(0)))
+                    .compose(T1)
+                )
+                T_aug_action2goal_list.append(T_aug_action2goal)
+
             data["T_distractor_list"] = torch.stack(
                 [T.get_matrix().squeeze(0).T for T in T_distractor_list]
             )
@@ -520,12 +527,7 @@ class NDFPointDataset(data.Dataset):
 
 
 class RPDiffPointDataset(data.Dataset):
-    def __init__(
-        self,
-        root: Path,
-        type: str = "train",
-        dataset_cfg: RigidDatasetCfg = RigidDatasetCfg(),
-    ):
+    def __init__(self, root, dataset_cfg, type):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
         self.root = root
@@ -753,10 +755,12 @@ class RPDiffPointDataset(data.Dataset):
 
 
 DATASET_FN = {
-    "rigid_point": RigidPointDataset,
-    "rigid_flow": RigidFlowDataset,
-    "ndf_point": NDFPointDataset,
-    "rpdiff_point": RPDiffPointDataset,
+    #"rigid_point": RigidPointDataset,
+    #"rigid_flow": RigidFlowDataset,
+    #"ndf_point": NDFPointDataset,
+    #"rpdiff_point": RPDiffPointDataset,
+    "flow": NDFDataset, 
+    "point": NDFDataset,
 }
 
 
@@ -782,20 +786,35 @@ class RigidDataModule(L.LightningModule):
         pass
 
     def setup(self, stage: str) -> None:
+        self.stage = stage
+
+        # dataset sanity checks
+        if self.dataset_cfg.scene and not self.dataset_cfg.world_frame:
+            raise ValueError("Scene inputs require a world frame.")
+
+        # if not in train mode, don't use rotation augmentations
+        if self.stage != "fit":
+            print("-------Turning off rotation augmentation for validation/inference.-------")
+            self.dataset_cfg.action_transform_type = "identity"
+            self.dataset_cfg.anchor_transform_type = "identity"
+            self.dataset_cfg.action_translation_variance = 0
+            self.dataset_cfg.action_rotation_variance = 0
+            self.dataset_cfg.anchor_translation_variance = 0
+            self.dataset_cfg.anchor_rotation_variance = 0
+
+        # if world frame, don't mean-center the point clouds
+        if self.dataset_cfg.world_frame:
+            print("-------Turning off mean-centering for world frame predictions.-------")
+            self.dataset_cfg.center_type = "none"
+            self.dataset_cfg.action_context_center_type = "none"
+
+
         self.train_dataset = DATASET_FN[self.dataset_cfg.type](
-            self.root,
-            type="train",
-            dataset_cfg=RigidDatasetCfg(
-                **omegaconf.OmegaConf.to_container(self.dataset_cfg)
-            ),
-        )
+            self.root, type="train", dataset_cfg=self.dataset_cfg)
+        
         self.val_dataset = DATASET_FN[self.dataset_cfg.type](
-            self.root,
-            type="val",
-            dataset_cfg=RigidDatasetCfg(
-                **omegaconf.OmegaConf.to_container(self.dataset_cfg)
-            ),
-        )
+            self.root, type="val", dataset_cfg=self.dataset_cfg)
+
 
     def train_dataloader(self) -> data.DataLoader:
         return data.DataLoader(
@@ -815,9 +834,3 @@ class RigidDataModule(L.LightningModule):
             drop_last=False,
         )
 
-####################################################################
-####################################################################
-####################################################################
-####################################################################
-####################################################################
-####################################################################

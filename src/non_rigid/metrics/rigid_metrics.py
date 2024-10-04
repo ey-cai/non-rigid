@@ -459,6 +459,7 @@ def get_pred_pcd_rigid_errors(
             for T_action2distractor in T_action2distractor_list
         ]
 
+    print(pred_xyz.shape, start_xyz.shape)
     pred_flows = pred_xyz - start_xyz
     T_pred = flow_to_tf(start_xyz, pred_flows)
 

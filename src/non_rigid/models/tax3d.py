@@ -17,7 +17,7 @@ from pytorch3d.transforms import Transform3d
 from torch import nn, optim
 from torch_geometric.nn import fps
 
-from non_rigid.metrics.error_metrics import get_pred_pcd_rigid_errors
+from non_rigid.metrics.rigid_metrics import get_pred_pcd_rigid_errors
 from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pc_nn
 from non_rigid.models.dit.diffusion import create_diffusion
 from non_rigid.models.dit.models import DiT_PointCloud_Unc as DiT_pcu
@@ -290,19 +290,19 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         ground_truth = expand_pcd(ground_truth, num_samples)
 
         # generating diffusion predictions and computing error metrics
-        if self.dataset_type in ["rigid_point", "rigid_flow", "ndf_point", "rpdiff_point"]:
-            pred_dict = self.predict(batch, num_samples, unflatten=False, progress=True, full_prediction=False)
-            pred = pred_dict[self.prediction_type]["pred"]
-
-            rmse = flow_rmse(pred, ground_truth, mask=False, seg=None).reshape(bs, num_samples)
-
-        else:
+        if "seg" in batch:
             pred_dict = self.predict(batch, num_samples, unflatten=False, progress=True, full_prediction=True)
             pred = pred_dict[self.prediction_type]["pred"]
 
             seg = batch["seg"].to(self.device)
             seg = expand_pcd(seg, num_samples)
             rmse = flow_rmse(pred, ground_truth, mask=True, seg=seg).reshape(bs, num_samples)
+
+        else:
+            pred_dict = self.predict(batch, num_samples, unflatten=False, progress=True, full_prediction=True)
+            pred = pred_dict[self.prediction_type]["pred"]
+
+            rmse = flow_rmse(pred, ground_truth, mask=False, seg=None).reshape(bs, num_samples)
         
         pred = pred.reshape(bs, num_samples, -1, 3)
 

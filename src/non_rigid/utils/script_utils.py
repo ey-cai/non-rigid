@@ -102,17 +102,14 @@ def create_model(cfg):
 def create_datamodule(cfg):
     # check that dataset and model types are compatible
     if cfg.model.type != cfg.dataset.type:
-        if cfg.dataset.type in ["rigid_point", "rigid_flow", "ndf_point", "rpdiff_point"]:
-            pass
-        else:
-            raise ValueError(
-                f"Model type: '{cfg.model.type}' and dataset type: '{cfg.dataset.type}' are incompatible."
+        raise ValueError(
+            f"Model type: '{cfg.model.type}' and dataset type: '{cfg.dataset.type}' are incompatible."
         )
 
     # check dataset name
     if cfg.dataset.name == "proc_cloth":
         datamodule_fn = ProcClothFlowDataModule
-    elif cfg.dataset.name == 'ndf_point':
+    elif cfg.dataset.name == 'ndf':
         datamodule_fn = RigidDataModule
     else:
         raise ValueError(f"Invalid dataset name: {cfg.dataset.name}")
