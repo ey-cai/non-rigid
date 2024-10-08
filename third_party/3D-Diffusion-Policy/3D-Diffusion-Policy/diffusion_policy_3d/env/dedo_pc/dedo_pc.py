@@ -97,7 +97,7 @@ class DedoEnv:
                 ),
             })
         else:
-            self.num_points = 1024
+            self.num_points = 580 * 2
             self.observation_space = spaces.Dict({
                 'point_cloud': spaces.Box(
                     low=-np.inf,
@@ -144,8 +144,8 @@ class DedoEnv:
                 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
-            action_pcd = downsample_with_fps(action_pcd, int(self.num_points / 2))
-            anchor_pcd = downsample_with_fps(anchor_pcd, int(self.num_points / 2))
+            # action_pcd = downsample_with_fps(action_pcd, int(self.num_points / 2))
+            anchor_pcd = downsample_with_fps(anchor_pcd, 580)
             point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
             obs_dict = {
                 'point_cloud': point_cloud,

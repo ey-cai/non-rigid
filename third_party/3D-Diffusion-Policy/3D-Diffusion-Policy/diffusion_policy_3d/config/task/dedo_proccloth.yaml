@@ -36,7 +36,7 @@ dataset:
   # TODO: change this to be a directory, and load the val and val ood from their separate files
 
 
-  root_dir: ~/Documents/data/proccloth
+  root_dir: /home/yingyuan/non-rigid/datasets/rand_anchor_pose_new_flow
   # root_dir: ~/datasets/nrp/ProcCloth
   # root_dir: ~/Documents/data
   # root_dir: ~/Documents/data/tax3d

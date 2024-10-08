@@ -21,10 +21,10 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
-    parser.add_argument('--root_dir', type=str, default='/home/yingyuan/non-rigid/datasets/rand_anchor_pose_new', help='directory to save data')
+    parser.add_argument('--root_dir', type=str, default='/home/yingyuan/non-rigid/datasets/rand_anchor_pose_new_flow', help='directory to save data')
     parser.add_argument('--num_episodes', type=int, default=40, help='number of episodes to run')
-    parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
-    parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
+    parser.add_argument('--action_num_points', type=int, default=580, help='number of points in action point cloud')
+    parser.add_argument('--anchor_num_points', type=int, default=580, help='number of points in anchor point cloud')
     # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
     parser.add_argument('--split', type=str, default='val_ood', help='train/val/val_ood split')
     # Args for experiment settings.
@@ -279,9 +279,10 @@ def main(cfg):
                     obs_action_pcd = obs['action_pcd']
                     obs_anchor_pcd = obs['anchor_pcd']
                     gripper_state = obs['gripper_state']
-                    if obs_action_pcd.shape[0] > 512:
-                        obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
-                    if obs_anchor_pcd.shape[0] > 512:
+                    # # We do not downsample action pcd here to have one-to-one correspondence to goal pcd.
+                    # if obs_action_pcd.shape[0] > 512:
+                    #     obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
+                    if obs_anchor_pcd.shape[0] > anchor_num_points:
                         obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
                     # update episode data
                     action_pcd_arrays_sub.append(obs_action_pcd)
@@ -334,6 +335,22 @@ def main(cfg):
                 ground_truth_arrays.extend(ground_truth_subarray)
                 tax3d_subarray = np.tile(tax3D_goalPCD, (len_episode, 1, 1))
                 tax3d_arrays.extend(tax3d_subarray)
+                
+                # debug
+                # print(action_pcd_arrays_sub_list[0].shape, anchor_pcd_arrays_sub_list[0].shape, ground_truth_subarray.shape, tax3d_subarray.shape)
+                # import open3d as o3d
+                # point_geometry = o3d.geometry.PointCloud()
+                # goal_geometry = o3d.geometry.PointCloud()
+                # anchor_geometry = o3d.geometry.PointCloud()
+                # point_geometry.points = o3d.utility.Vector3dVector(action_pcd_arrays_sub_list[0][:200])
+                # point_geometry.paint_uniform_color(np.array([0, 0, 1]))
+                # goal_geometry.points = o3d.utility.Vector3dVector(ground_truth_subarray[0][:200])
+                # goal_geometry.paint_uniform_color(np.array([1, 0, 0]))
+                # anchor_geometry.points = o3d.utility.Vector3dVector(anchor_pcd_arrays_sub_list[0])
+                # anchor_geometry.paint_uniform_color(np.array([0, 1, 0]))
+                # o3d.visualization.draw_geometries([point_geometry, goal_geometry, anchor_geometry])
+                # exit()
+
                 # save tax3d demos and rollout vids
                 for i in range(len(tax3d_demo_list)):
                     tax3d_demo = tax3d_demo_list[i]

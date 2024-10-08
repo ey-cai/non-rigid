@@ -450,7 +450,7 @@ class PointNet2(nn.Module):
         super(PointNet2, self).__init__()
         normal_channel = True if in_channels == 6 else False
         self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=32, in_channel=in_channels, mlp=[64, 64, 128], group_all=False)
+        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=32, in_channel=in_channels, mlp=[64, 64, 128], group_all=False)  # 512 may be bug
         self.sa2 = PointNetSetAbstraction(npoint=128, radius=0.4, nsample=64, in_channel=128 + 3, mlp=[128, 128, 256], group_all=False)
         self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
         self.fc1 = nn.Linear(1024, 512)
@@ -601,18 +601,26 @@ class TAX3DEncoder(nn.Module):
         self.extractor_mode = pointcloud_encoder_cfg.extractor_mode
         self.use_goal_pc = pointcloud_encoder_cfg.use_goal_pc
         self.use_onehot = pointcloud_encoder_cfg.use_onehot
+        self.use_flow = pointcloud_encoder_cfg.use_flow
         
         if self.extractor_mode == "simple":
             print(self.pointnet_type)
             if self.pointnet_type == "pointnet":
                 if self.use_onehot:
                     pointcloud_encoder_cfg.in_channels = 6
+                    if self.use_flow:
+                        pointcloud_encoder_cfg.in_channels += 3
                     self.extractor = PointNetEncoderXYZ(**pointcloud_encoder_cfg)  # xyz
                 else:
                     pointcloud_encoder_cfg.in_channels = 3
+                    if self.use_flow:
+                        pointcloud_encoder_cfg.in_channels += 3
                     self.extractor = PointNetEncoderXYZ(**pointcloud_encoder_cfg)
             elif self.pointnet_type == "pointnet2":  # this encoder only considers xyz
-                self.extractor = PointNet2_small2(num_classes=pointcloud_encoder_cfg.out_channels)
+                pointcloud_encoder_cfg.in_channels = 3
+                if self.use_flow:
+                    pointcloud_encoder_cfg.in_channels += 3
+                self.extractor = PointNet2_small2(num_classes=pointcloud_encoder_cfg.out_channels, in_channels=pointcloud_encoder_cfg.in_channels)
                 self.extractor = replace_bn_with_gn(self.extractor,features_per_group=4)
                 # if self.use_onehot:
                 #     pointcloud_encoder_cfg.in_channels = 6
@@ -626,17 +634,24 @@ class TAX3DEncoder(nn.Module):
             elif self.pointnet_type == "pointnet_attention": 
                 if self.use_onehot:
                     pointcloud_encoder_cfg.in_channels = 6
+                    if self.use_flow:
+                        pointcloud_encoder_cfg.in_channels += 3
                     self.extractor = PointNetAttention(**pointcloud_encoder_cfg)
                 else:
                     pointcloud_encoder_cfg.in_channels = 3
+                    if self.use_flow:
+                        pointcloud_encoder_cfg.in_channels += 3
                     self.extractor = PointNetAttention(**pointcloud_encoder_cfg)
             elif self.pointnet_type == 'point_transformer':
+                pointcloud_encoder_cfg.in_channels = 3
+                if self.use_flow:
+                    pointcloud_encoder_cfg.in_channels += 3
                 self.extractor = PointTransformerSeg(
                     npoints=1024,  # without goal pcd
                     n_c=pointcloud_encoder_cfg.out_channels,
                     nblocks=3,
                     nneighbor=16,
-                    d_points=3,
+                    d_points=pointcloud_encoder_cfg.in_channels,
                     transformer_dim=32,
                     base_dim=8,
                     downsample_ratio=8,
@@ -672,11 +687,11 @@ class TAX3DEncoder(nn.Module):
 
     def forward(self, observations: Dict) -> torch.Tensor:
         points = observations[self.point_cloud_key]
-        action_pcd = points[:, :512, :]
-        anchor_pcd = points[:, 512:1024, :]
+        action_pcd = points[:, :580, :]
+        anchor_pcd = points[:, 580:580*2, :]
 
         if self.use_goal_pc:
-            goal_pcd = points[:, 1024:, :]  # TODO for kyutae: replace this with predicted goal point cloud, should be something like self.tax3d(action_pcd, anchor_pcd)
+            goal_pcd = points[:, 580*2:, :]
 
         n_action_pcd = action_pcd.shape[1]
         n_anchor_pcd = anchor_pcd.shape[1]
@@ -703,14 +718,41 @@ class TAX3DEncoder(nn.Module):
                 # import numpy as np
                 # point_geometry = o3d.geometry.PointCloud()
                 # goal_geometry = o3d.geometry.PointCloud()
-                # point_geometry.points = o3d.utility.Vector3dVector(points[0].cpu().numpy())
+                # point_geometry.points = o3d.utility.Vector3dVector(points[0, :, :3].cpu().numpy())
                 # point_geometry.paint_uniform_color(np.array([0, 0, 1]))
-                # goal_geometry.points = o3d.utility.Vector3dVector(goal_pcd[0].cpu().numpy())
+                # goal_geometry.points = o3d.utility.Vector3dVector(goal_pcd[0, :, :3].cpu().numpy())
                 # goal_geometry.paint_uniform_color(np.array([1, 0, 0]))
                 # o3d.visualization.draw_geometries([point_geometry, goal_geometry])
                 # exit()
                 
                 pn_feat = self.extractor(points)    # B * out_channel
+            elif self.use_flow:
+                flow_action = points[:, n_action_pcd+n_anchor_pcd:, :3] - points[:, :n_action_pcd, :3]
+                flow_anchor = torch.zeros_like(flow_action)
+                action_input = torch.cat([points[:, :n_action_pcd, :3], flow_action, points[:, :n_action_pcd, 3:]], dim=-1)
+                anchor_input = torch.cat([points[:, n_action_pcd:n_action_pcd+n_anchor_pcd, :3], 
+                                          flow_anchor, 
+                                          points[:, n_action_pcd:n_action_pcd+n_anchor_pcd, 3:]], dim=-1)
+                all_points = torch.cat([action_input, anchor_input], dim=1)
+                pn_feat = self.extractor(all_points)
+
+                # # debug
+                # import matplotlib.pyplot as plt
+                # fig = plt.figure(figsize=(10, 7))
+                # ax = fig.add_subplot(111, projection='3d')
+                # ax.scatter(points[0, :580, 0].cpu().numpy(), points[0, :580, 1].cpu().numpy(), points[0, :580, 2].cpu().numpy(), c='blue', label='Action Point Cloud')
+                # ax.scatter(points[0, 2*580:, 0].cpu().numpy(), points[0, 2*580:, 1].cpu().numpy(), points[0, 2*580:, 2].cpu().numpy(), c='red', label='Goal Point Cloud')
+                # for i in range(580):
+                #     ax.quiver(points[0, i, 0].cpu().numpy(), points[0, i, 1].cpu().numpy(), points[0, i, 2].cpu().numpy(),
+                #             flow_action[0, i, 0].cpu().numpy(), flow_action[0, i, 1].cpu().numpy(), flow_action[0, i, 2].cpu().numpy(),
+                #             color='green', arrow_length_ratio=0.1)
+                # ax.set_xlabel('X')
+                # ax.set_ylabel('Y')
+                # ax.set_zlabel('Z')
+                # ax.legend()
+                # ax.set_title('Point Clouds and Relative Flow')
+                # plt.show()
+                # exit()
             else:
                 pn_feat = self.extractor(points[:, :n_action_pcd+n_anchor_pcd, :])
         

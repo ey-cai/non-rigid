@@ -64,6 +64,7 @@ policy:
     extractor_mode: simple # incremental, all
     use_goal_pc: True
     use_onehot: False
+    use_flow: False
     in_channels: 3
     out_channels: ${policy.encoder_output_dim}
     use_layernorm: true

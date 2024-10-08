@@ -451,9 +451,9 @@ class PointNet2_small(nn.Module):
         return x # x shape: B, N, num_classes
 
 class PointNet2_small2(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, in_channels=3):
         super(PointNet2_small2, self).__init__()
-        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=3, mlp_list=[[16, 16, 16], [32, 32, 32]])
+        self.sa1 = PointNetSetAbstractionMsg(npoint=1024, radius_list=[0.05, 0.1], nsample_list=[16, 32], in_channel=in_channels, mlp_list=[[16, 16, 16], [32, 32, 32]])
         self.sa2 = PointNetSetAbstractionMsg(npoint=256, radius_list=[0.1, 0.2], nsample_list=[16, 32], in_channel=48, mlp_list=[[64, 64, 64], [64, 96, 64]])
         self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128, [[128, 196, 128], [128, 196, 128]])
 

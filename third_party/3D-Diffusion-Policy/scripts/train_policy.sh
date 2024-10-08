@@ -24,6 +24,7 @@ use_goal_pc=${7}
 pointnet_type=${8}
 version=${9}
 use_onehot=${10}
+use_flow=${11}
 echo -e "\033[33mgpu id (to use): ${gpu_id}\033[0m"
 
 
@@ -57,7 +58,8 @@ python train.py --config-name=${config_name}.yaml \
                             policy.pointcloud_encoder_cfg.extractor_mode=simple \
                             policy.pointcloud_encoder_cfg.use_goal_pc=${use_goal_pc} \
                             policy.pointnet_type=${pointnet_type} \
-                            policy.pointcloud_encoder_cfg.use_onehot=${use_onehot}
+                            policy.pointcloud_encoder_cfg.use_onehot=${use_onehot} \
+                            policy.pointcloud_encoder_cfg.use_flow=${use_flow}
 
 
 

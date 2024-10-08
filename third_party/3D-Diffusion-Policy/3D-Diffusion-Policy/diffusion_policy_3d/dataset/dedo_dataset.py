@@ -68,7 +68,7 @@ class DedoDataset(BaseDataset):
         train_zarr_path = os.path.join(self.zarr_dir, 'train.zarr')
         print(train_zarr_path)
         self.replay_buffer = ReplayBuffer.copy_from_path(
-            train_zarr_path, keys=['point_cloud', 'state', 'action', 'action_pcd', 'anchor_pcd', 'force_control', 'goal_pcd'])
+            train_zarr_path, keys=['point_cloud', 'state', 'action', 'action_pcd', 'anchor_pcd', 'ground_truth', 'tax3d'])
         train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
@@ -142,7 +142,7 @@ class DedoDataset(BaseDataset):
             'point_cloud': self.replay_buffer['point_cloud'],
             'action_pcd': self.replay_buffer['action_pcd'],
             'anchor_pcd': self.replay_buffer['anchor_pcd'],
-            'goal_pcd': self.replay_buffer['goal_pcd']
+            'goal_pcd': self.replay_buffer['ground_truth']  # tax3d for predicted goal pcd
         }
         normalizer = LinearNormalizer()
         normalizer.fit(data, last_n_dims=1, mode=mode,**kwargs)
@@ -162,14 +162,14 @@ class DedoDataset(BaseDataset):
         action_pcd = sample['action_pcd'].astype(np.float32)
         anchor_pcd = sample['anchor_pcd'].astype(np.float32)
         # force_control = sample['force_control'].astype(np.float32)
-        goal_pcd = sample['goal_pcd'].astype(np.float32)
+        goal_pcd = sample['ground_truth'].astype(np.float32)  # tax3d for predicted goal pcd
 
         data = {
             'obs': {
-                'point_cloud': point_cloud, # T, 1024, 3, no rgb
+                'point_cloud': point_cloud, # T, 1160, 3, no rgb
                 'agent_pos': agent_pos, # T, D_pos
-                'action_pcd': action_pcd, # T, 512, 3
-                'anchor_pcd': anchor_pcd, # T, 512, 3
+                'action_pcd': action_pcd, # T, 580, 3
+                'anchor_pcd': anchor_pcd, # T, 580, 3
                 'goal_pcd': goal_pcd # T, 580, 3
             },
             'action': action # T, D_action
