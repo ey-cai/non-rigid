@@ -21,6 +21,7 @@ pointnet_type=${7}
 version=${8}
 use_onehot=${9}
 use_flow=${10}
+extractor_mode=${11}
 
 
 cd 3D-Diffusion-Policy
@@ -37,7 +38,7 @@ python eval.py --config-name=${config_name}.yaml \
                             logging.mode=offline \
                             checkpoint.save_ckpt=${save_ckpt} \
                             policy.pointcloud_encoder_cfg.version=${version} \
-                            policy.pointcloud_encoder_cfg.extractor_mode=simple \
+                            policy.pointcloud_encoder_cfg.extractor_mode=${extractor_mode} \
                             policy.pointcloud_encoder_cfg.use_goal_pc=${use_goal_pc} \
                             policy.pointnet_type=${pointnet_type} \
                             policy.pointcloud_encoder_cfg.use_onehot=${use_onehot} \

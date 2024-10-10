@@ -25,6 +25,7 @@ pointnet_type=${8}
 version=${9}
 use_onehot=${10}
 use_flow=${11}
+extractor_mode=${12}
 echo -e "\033[33mgpu id (to use): ${gpu_id}\033[0m"
 
 
@@ -55,7 +56,7 @@ python train.py --config-name=${config_name}.yaml \
                             checkpoint.save_ckpt=${save_ckpt} \
                             enable_wandb=${enable_wandb} \
                             policy.pointcloud_encoder_cfg.version=${version} \
-                            policy.pointcloud_encoder_cfg.extractor_mode=simple \
+                            policy.pointcloud_encoder_cfg.extractor_mode=${extractor_mode} \
                             policy.pointcloud_encoder_cfg.use_goal_pc=${use_goal_pc} \
                             policy.pointnet_type=${pointnet_type} \
                             policy.pointcloud_encoder_cfg.use_onehot=${use_onehot} \

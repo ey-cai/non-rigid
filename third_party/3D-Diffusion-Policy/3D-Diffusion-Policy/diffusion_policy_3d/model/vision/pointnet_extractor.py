@@ -10,6 +10,10 @@ from termcolor import cprint
 from diffusion_policy_3d.model.vision.pointnet2_utils import PointNet2_small, PointNet2_small2, PointNet2ssg_small
 from diffusion_policy_3d.model.vision.point_transformer import PointTransformerSeg, TrivialLocallyTransformer
 from diffusion_policy_3d.common.network_helper import replace_bn_with_gn
+from diffusion_policy_3d.model.vision.layers import RelativeCrossAttentionModule
+from diffusion_policy_3d.model.vision.position_encodings import RotaryPositionEncoding3D
+
+import einops
 
 
 def square_distance(src, dst):
@@ -629,7 +633,10 @@ class TAX3DEncoder(nn.Module):
                 #     pointcloud_encoder_cfg.in_channels = 3
                 #     self.extractor = PointNet2(**pointcloud_encoder_cfg)
             elif self.pointnet_type == "pointnet2ssg":  # this encoder only considers xyz
-                self.extractor = PointNet2ssg_small(num_classes=pointcloud_encoder_cfg.out_channels)
+                pointcloud_encoder_cfg.in_channels = 3
+                if self.use_flow:
+                    pointcloud_encoder_cfg.in_channels += 3
+                self.extractor = PointNet2ssg_small(num_classes=pointcloud_encoder_cfg.out_channels, in_channels=pointcloud_encoder_cfg.in_channels)
                 self.extractor = replace_bn_with_gn(self.extractor,features_per_group=4)
             elif self.pointnet_type == "pointnet_attention": 
                 if self.use_onehot:
@@ -662,7 +669,41 @@ class TAX3DEncoder(nn.Module):
                 raise NotImplementedError
             
         elif self.extractor_mode == "incremental":
-            raise NotImplementedError
+            pointcloud_encoder_cfg.in_channels = 3
+            if self.use_flow:
+                pointcloud_encoder_cfg.in_channels += 3
+            encoder_output_dim = pointcloud_encoder_cfg.out_channels
+            hidden_layer_dim = encoder_output_dim
+            vision_encoder = nn.Sequential(
+                nn.Linear(pointcloud_encoder_cfg.in_channels, hidden_layer_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_layer_dim, hidden_layer_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_layer_dim, encoder_output_dim)
+            )
+            vision_encoder = replace_bn_with_gn(vision_encoder)
+
+            attention_num_heads = 2
+            attention_num_layers = 1
+            attn_layers = RelativeCrossAttentionModule(encoder_output_dim, attention_num_heads, attention_num_layers)
+            attn_layers = replace_bn_with_gn(attn_layers)
+            self_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, attention_num_heads, attention_num_layers)
+            self_attn_layers = replace_bn_with_gn(self_attn_layers)
+            goal_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, attention_num_heads, attention_num_layers)
+            goal_attn_layers = replace_bn_with_gn(goal_attn_layers)
+            goal_self_attn_layers = RelativeCrossAttentionModule(encoder_output_dim, attention_num_heads, attention_num_layers)
+            goal_self_attn_layers = replace_bn_with_gn(goal_self_attn_layers)
+
+            self.nets = nn.ModuleDict({
+                'vision_encoder': vision_encoder,
+                'relative_pe_layer': RotaryPositionEncoding3D(encoder_output_dim),
+                'attn_layers': attn_layers,
+                'self_attn_layers': self_attn_layers,
+                'goal_attn_layers': goal_attn_layers,
+                'goal_self_attn_layers': goal_self_attn_layers,
+                'final_layer': nn.Linear(580*encoder_output_dim, encoder_output_dim),
+            })
+            # self.n_output_channels *= 580
         
         elif self.extractor_mode == "all":
             raise NotImplementedError
@@ -757,7 +798,44 @@ class TAX3DEncoder(nn.Module):
                 pn_feat = self.extractor(points[:, :n_action_pcd+n_anchor_pcd, :])
         
         elif self.extractor_mode == "incremental":
-            raise NotImplementedError
+            B, N, C = points.shape  # 256, 1740, 3
+            rgb_obs_flatten = points.reshape(-1, C)
+            rgb_features_flatten = self.nets['vision_encoder'](rgb_obs_flatten)
+            rgb_features = rgb_features_flatten.reshape(B, N, -1)  # shape B N encoder_output_dim
+            rgb_features = einops.rearrange(rgb_features, "B N encoder_output_dim -> N B encoder_output_dim") # 1740, 256, 64
+            
+            point_cloud_rel_pos_embedding = self.nets['relative_pe_layer'](points)[:, :, :rgb_features.shape[-1], :] # 256, 1740, 64, 2
+
+            # cross attention between action pcd and anchor pcd
+            attn_output = self.nets['attn_layers'](
+                query=rgb_features[:580], value=rgb_features[580:1160],
+                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, 580:1160],
+            )[-1] # 580, 256, 64
+
+            # self attention
+            self_attn_output = self.nets['self_attn_layers'](
+                query=attn_output, value=attn_output,
+                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, :580],
+            )[-1] # 580, 256, 64
+            # new_rgb_features = einops.rearrange(
+            #     self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # 256, 37120
+            
+            # cross attention between action pcd and goal pcd
+            goal_attn_output = self.nets['goal_attn_layers'](
+                query=self_attn_output, value=rgb_features[1160:],
+                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, 1160:],
+            )[-1] # 580, 256, 64
+
+            # self attention
+            goal_self_attn_output = self.nets['goal_self_attn_layers'](
+                query=goal_attn_output, value=goal_attn_output,
+                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, :580],
+            )[-1] # 580, 256, 64
+            pn_feat = einops.rearrange(
+                goal_self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # 256, 37120
+            # pn_feat = torch.cat([new_rgb_features, new_goal_features], dim=-1)
+            
+            pn_feat = self.nets['final_layer'](pn_feat)
         
         elif self.extractor_mode == "all":
             raise NotImplementedError
