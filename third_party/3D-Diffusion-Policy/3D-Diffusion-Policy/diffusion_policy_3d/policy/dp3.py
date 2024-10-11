@@ -279,6 +279,9 @@ class DP3(BasePolicy):
         local_cond = None
         global_cond = None
         trajectory = nactions
+        shape = trajectory.shape
+        # Flatten the last two dimensions, specifically the force vectors for the two grippers 
+        trajectory = trajectory.view(shape[0], shape[1], -1)
         cond_data = trajectory
         
        
@@ -307,7 +310,6 @@ class DP3(BasePolicy):
             nobs_features = nobs_features.reshape(batch_size, horizon, -1)
             cond_data = torch.cat([nactions, nobs_features], dim=-1)
             trajectory = cond_data.detach()
-
 
         # generate impainting mask
         condition_mask = self.mask_generator(trajectory.shape)

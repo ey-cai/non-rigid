@@ -1,6 +1,6 @@
 # use the same command as training except the script
 # for example:
-# bash scripts/eval_policy.sh dp3 adroit_hammer 0322 0 0
+# bash gen_demo_goal_pcd.sh tax3d dedo_proccloth_goalPC jfqahima 1 0
 
 
 

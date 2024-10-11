@@ -114,6 +114,7 @@ class DedoEnv:
 
     def step(self, action):
         _, reward, done, info = self.env.step(action, self.control_type, tax3d=self.tax3d)
+
         next_obs = self.get_obs()
         return next_obs, reward, done, info
 
@@ -133,7 +134,6 @@ class DedoEnv:
 
         action_pcd = obs['action_pcd']
         anchor_pcd = obs['anchor_pcd']
-
         if self.tax3d:
             # tax3d-specific observation; action/anchor segmentation, and full action point cloud
             obs_dict = {
@@ -143,10 +143,11 @@ class DedoEnv:
                 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
+            anchor_pcd = downsample_with_fps(anchor_pcd, 580)
             point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
 
-            if point_cloud.shape[0] > self.num_points:
-                point_cloud = downsample_with_fps(point_cloud, self.num_points)
+            # if point_cloud.shape[0] > self.num_points:
+            #     point_cloud = downsample_with_fps(point_cloud, self.num_points)
             obs_dict = {
                 'point_cloud': point_cloud,
                 'agent_pos': obs['gripper_state'],
@@ -195,7 +196,7 @@ if __name__ == '__main__':
     traj = []
     while True:
         assert (not isinstance(env.env.action_space, gym.spaces.Discrete))
-        next_obs, rwd, done, info = env.step(act, 'velocity')
+        next_obs, rwd, done, info = env.step(act, 'force')
         traj.append(obs) # just obs for now, for debugging
         if done:
             break

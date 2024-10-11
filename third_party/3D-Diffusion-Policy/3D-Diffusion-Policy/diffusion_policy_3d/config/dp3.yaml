@@ -60,9 +60,8 @@ policy:
 
 
   pointcloud_encoder_cfg:
-    version: origin # new
+    version: dp3 # new
     extractor_mode: simple # incremental, all
-    goal_pc_version: 'tax3d'
     use_onehot: False
     in_channels: 3
     out_channels: ${policy.encoder_output_dim}

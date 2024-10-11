@@ -32,7 +32,7 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 
-from diffusion_policy_3d.policy.tax3d import TAX3D
+from diffusion_policy_3d.policy.tax3d_goalPC import TAX3D
 
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)

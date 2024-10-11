@@ -22,7 +22,7 @@ env_runner:
   fps: 10
   task_name: proccloth
   viz: False
-  control_type: position
+  control_type: force # position
 
 inference:
   seed: 1

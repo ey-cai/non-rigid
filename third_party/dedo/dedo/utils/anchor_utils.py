@@ -117,21 +117,7 @@ def command_anchor_position(sim, anchor_bullet_id, tgt_pos, tax3d=False, task='p
     pos_diff = tgt_pos - np.array(anc_pos)
     vel_diff = -np.array(anc_linvel) # target velocity is 0
 
-    # model and task-specific control
-    if tax3d:
-        # for tax3d models, bias towards target position
-        if task == 'proccloth':
-            # raw_force = 35.0 * vel_diff + CTRL_PD_KD_POS * pos_diff
-            raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
-        elif task == 'hangbag':
-            # pos_diff_mag = np.linalg.norm(pos_diff)
-            # if pos_diff_mag > 0.5:
-            #     pos_diff = (pos_diff / pos_diff_mag) * max(pos_diff_mag, 3.5)
-            raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
-        else:
-            raise ValueError('Unknown task.')
-    else:
-        raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
+    raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
 
     force = np.clip(raw_force, -1.0 * CTRL_MAX_FORCE, CTRL_MAX_FORCE)
     # print(vel_diff, pos_diff, force)

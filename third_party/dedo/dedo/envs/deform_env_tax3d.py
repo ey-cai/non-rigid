@@ -33,6 +33,7 @@ from ..utils.procedural_utils import (
     gen_procedural_hang_cloth, gen_procedural_button_cloth)
 from ..utils.args import preset_override_util
 from ..utils.process_camera import ProcessCamera, cameraConfig
+from ..utils.anchor_utils import CTRL_MAX_FORCE, CTRL_PD_KD, CTRL_PD_KD_POS
 
 from scipy.spatial.transform import Rotation as R
 
@@ -537,9 +538,12 @@ class DeformEnvTAX3D(gym.Env):
         # print(action)
         if self.args.debug:
             print('action', action)
-        if not unscaled:
-            assert self.action_space.contains(action)
+        
+        # if not unscaled:
+        # Only applies to position vector
+        #     assert self.action_space.contains(action)
             # assert ((np.abs(action) <= 1.0).all()), 'action must be in [-1, 1]'
+        action = np.array(action)
         action = action.reshape(self.num_anchors, -1)
 
         # Step through physics simulation.
@@ -549,7 +553,10 @@ class DeformEnvTAX3D(gym.Env):
             if action_type == 'velocity':
                 self.do_action_velocity(action, unscaled)
             elif action_type == 'position':
-                self.do_action_position(action, unscaled, tax3d)
+                forces = self.do_action_position(action, unscaled, tax3d)
+            elif action_type == 'force':
+                for i in range(self.num_anchors):
+                    self.sim.applyExternalForce(self.anchor_ids[i], -1, action[i], [0, 0, 0], pybullet.LINK_FRAME)
             else:
                 raise ValueError(f'Unknown action type {action_type}')
             self.sim.stepSimulation()
@@ -623,9 +630,6 @@ class DeformEnvTAX3D(gym.Env):
                 tax3d=tax3d,
                 task='proccloth'
             )
-            # self.sim.addUserDebugPoints(
-            #     [action[i]], [[1, 0, 0]], pointSize=10
-            # )
 
     def make_final_steps(self):
         # We do no explicitly release the anchors, since this can create a jerk
@@ -962,6 +966,86 @@ class DeformEnvTAX3D(gym.Env):
         act = np.concatenate([a1_act, a2_act], axis=0).astype(np.float32)
         return act  * speed_factor
     
+    def pseudo_expert_force(self, hole_id, speed_factor=1.0, rigid_rot=None, rigid_trans=None):
+        """ Returns force"""
+        # TODO: maybe switch entirely to position control for better demos, but this is low priority
+        if self.target_action is not None:
+            action = self.target_action
+        else:
+            # default goal pose
+            default_goal_pos = [0, 0.00, 8.2 * self.anchor_params['tallrod_scale']]
+
+
+            # getting goal position and loop centroid
+            # goal_pos = self.goal_pos[hole_id]
+            true_loop_vertices = self.args.deform_true_loop_vertices[hole_id]
+            _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
+            vertex_positions = np.array(vertex_positions)
+            centroid_points = vertex_positions[true_loop_vertices]
+            centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
+            centroid = centroid_points.mean(axis=0)
+
+            # getting the flow vector
+            # flow = goal_pos - centroid
+
+            # if rigid_rot and rigid_trans are provided, transform endpoints
+            # otherwise, just use the default goal position
+
+
+            flow = default_goal_pos - centroid
+            flow += np.array([0, -1.5, 0]) # grippers should go slightly past anchor
+            grip_obs = self.get_grip_obs()
+            a1_pos = grip_obs[0:3]
+            a2_pos = grip_obs[6:9]
+
+            if rigid_rot is not None:
+                # transforming default goal position
+                R_default2goal = R.from_euler('xyz', rigid_rot)
+                t_default2goal = np.array(rigid_trans)
+                a1_act = R_default2goal.apply(a1_pos + flow) + t_default2goal
+                a2_act = R_default2goal.apply(a2_pos + flow) + t_default2goal
+
+            else:
+                #a1_act = default_goal_pos - centroid
+                #a2_act = default_goal_pos - centroid
+                a1_act = a1_pos + flow
+                a2_act = a2_pos + flow
+
+            action = np.concatenate([a1_act, a2_act], axis=0).astype(np.float32)
+            self.target_action = action
+
+        # goal correction
+        goal_pos = self.goal_pos[hole_id]
+        true_loop_vertices = self.args.deform_true_loop_vertices[hole_id]
+        _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
+        vertex_positions = np.array(vertex_positions)
+        centroid_points = vertex_positions[true_loop_vertices]
+        centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
+        centroid = centroid_points.mean(axis=0)
+
+        correction = goal_pos - centroid
+        correction /= max(np.linalg.norm(correction), 1.0)
+        action = action + np.concatenate([correction, correction], axis=0).astype(np.float32)
+        action = action.reshape([2,3])
+        
+        # Retreive force from action
+        forces = []
+        for i in range(self.num_anchors):
+            anchor_i = self.anchor_ids[i]
+            action_i = action[i]
+            anc_pos, _, = self.sim.getBasePositionAndOrientation(anchor_i)
+            anc_linvel, _ = self.sim.getBaseVelocity(anchor_i)
+
+            # compute error signals
+            pos_diff = action_i - np.array(anc_pos)
+            vel_diff = -np.array(anc_linvel) # target velocity is 0
+
+            raw_force = CTRL_PD_KD * vel_diff + CTRL_PD_KD_POS * pos_diff
+
+            force = np.clip(raw_force, -1.0 * CTRL_MAX_FORCE, CTRL_MAX_FORCE)
+            forces.append(force)
+        return forces
+
     def random_anchor_transform(self):
         z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
         rot = R.from_euler('z', 

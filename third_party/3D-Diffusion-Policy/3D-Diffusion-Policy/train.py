@@ -32,7 +32,7 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 
-from diffusion_policy_3d.policy.tax3d_goalPC import TAX3D
+from diffusion_policy_3d.policy.tax3d import TAX3D
 
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
@@ -144,22 +144,23 @@ class TrainDP3Workspace:
         if env_runner is not None:
             assert isinstance(env_runner, BaseRunner)
         
-        cfg.logging.name = str(cfg.logging.name)
-        cprint("-----------------------------", "yellow")
-        cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
-        cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
-        cprint("-----------------------------", "yellow")
-        # configure logging
-        wandb_run = wandb.init(
-            dir=str(self.output_dir),
-            config=OmegaConf.to_container(cfg, resolve=True),
-            **cfg.logging
-        )
-        wandb.config.update(
-            {
-                "output_dir": self.output_dir,
-            }
-        )
+        if cfg.enable_wandb:
+            cprint("-----------------------------", "yellow")
+            cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
+            cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
+            cprint("-----------------------------", "yellow")
+            cfg.logging.name = str(cfg.logging.group)
+            # configure logging
+            wandb_run = wandb.init(
+                dir=str(self.output_dir),
+                config=OmegaConf.to_container(cfg, resolve=True),
+                **cfg.logging
+            )
+            wandb.config.update(
+                {
+                    "output_dir": self.output_dir,
+                }
+            )
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
@@ -235,7 +236,8 @@ class TrainDP3Workspace:
                     is_last_batch = (batch_idx == (len(train_dataloader)-1))
                     if not is_last_batch:
                         # log of last step is combined with validation and rollout
-                        wandb_run.log(step_log, step=self.global_step)
+                        if cfg.enable_wandb:
+                            wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
                     if (cfg.training.max_train_steps is not None) \
@@ -289,6 +291,8 @@ class TrainDP3Workspace:
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
                     gt_action = batch['action']
+                    shape = gt_action.shape
+                    gt_action = gt_action.view(shape[0], shape[1], -1)
                     
                     result = policy.predict_action(obs_dict)
                     pred_action = result['action_pred']

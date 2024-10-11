@@ -18,9 +18,8 @@ run_dir="/home/ktsim/Projects/non-rigid/data/outputs/${exp_name}_seed${seed}"
 gpu_id=${5}
 enable_wandb=${6}
 algo_version=${7}
-goal_pc_version=${8}
-pointnet_type=${9}
-use_onehot=${10}
+pointnet_type=${8}
+use_onehot=${9}
 
 cd 3D-Diffusion-Policy
 
@@ -38,7 +37,6 @@ python eval.py --config-name=${config_name}.yaml \
                             enable_wandb=${enable_wandb}\
                             policy.pointcloud_encoder_cfg.version=${algo_version} \
                             policy.pointcloud_encoder_cfg.extractor_mode=simple \
-                            policy.pointcloud_encoder_cfg.goal_pc_version=${goal_pc_version} \
                             policy.pointnet_type=${pointnet_type} \
                             policy.pointcloud_encoder_cfg.use_onehot=${use_onehot}
 

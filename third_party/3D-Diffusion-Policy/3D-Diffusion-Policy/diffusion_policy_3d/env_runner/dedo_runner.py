@@ -128,7 +128,6 @@ class DedoRunner(BaseRunner):
                 action = np_action_dict['action'].squeeze(0)
                 # step env
                 obs, reward, done, info = env.step(action)
-
                 if done:
                     break
             

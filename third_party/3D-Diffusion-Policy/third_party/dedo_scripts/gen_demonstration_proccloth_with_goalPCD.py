@@ -25,11 +25,11 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='data', help='directory to save data')
-    parser.add_argument('--num_episodes', type=int, default=40, help='number of episodes to run')
-    parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
-    parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
+    parser.add_argument('--num_episodes', type=int, default=64, help='number of episodes to run')
+    parser.add_argument('--action_num_points', type=int, default=580, help='number of points in action point cloud')
+    parser.add_argument('--anchor_num_points', type=int, default=580, help='number of points in anchor point cloud')
     # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
-    parser.add_argument('--split', type=str, default='val_ood', help='train/val/val_ood split')
+    parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
     parser.add_argument('--random_cloth_pose', action='store_true', help='randomize cloth pose')
@@ -243,7 +243,7 @@ def main(cfg):
             anchor_pcd_arrays_sub_list = []
             state_arrays_sub_list = []
             action_arrays_sub_list = []
-
+        
             total_count_sub_list = []
             success_sub_list = []
             reward_sum_list = []
@@ -297,7 +297,7 @@ def main(cfg):
                 anchor_pcd_arrays_sub = []
                 state_arrays_sub = []
                 action_arrays_sub = []
-
+              
                 success = False
                 total_count_sub = 0
                 reward_sum = 0
@@ -305,7 +305,7 @@ def main(cfg):
                 # rollout the policy for this hole
                 while True:
                     # get action
-                    action = env.pseudo_expert_action(hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
+                    action = env.pseudo_expert_force(hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
                     total_count_sub += 1
 
                     # downsample point clouds for demos (not tax3d demos)
@@ -313,8 +313,8 @@ def main(cfg):
                     obs_anchor_pcd = obs['anchor_pcd']
                     gripper_state = obs['gripper_state']
 
-                    if obs_action_pcd.shape[0] > 512:
-                        obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
+                    # if obs_action_pcd.shape[0] > 512:
+                    #     obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
                     if obs_anchor_pcd.shape[0] > 512:
                         obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
 
@@ -325,7 +325,8 @@ def main(cfg):
                     action_arrays_sub.append(action)
 
                     # step environment
-                    obs, reward, done, info = env.step(action, action_type='position')
+                    obs, reward, done, info = env.step(action, action_type='force')
+           
                     reward_sum += reward
                     if done:
                         success = info['is_success']
@@ -341,6 +342,7 @@ def main(cfg):
                     action_arrays_sub_list.extend(action_arrays_sub)
                     total_count_sub_list.append(total_count_sub)
                     reward_sum_list.append(reward_sum)
+                    # force_arrays_sub_list.extend(forces_arrays_sub)
 
                     # updating successful tax3d demo
                     tax3d_demo["flow"] = obs["action_pcd"] - tax3d_demo["action_pc"]
@@ -416,7 +418,7 @@ def main(cfg):
     episode_ends_arrays = np.array(episode_ends_arrays)
 
     # as an additional step, create point clouds that combine action and anchor
-    point_cloud_arrays = np.concatenate([action_pcd_arrays, anchor_pcd_arrays], axis=1)
+    point_cloud_arrays = np.concatenate([action_pcd_arrays, anchor_pcd_arrays, ground_truth_arrays], axis=1)
 
 
     compressor = zarr.Blosc(cname='zstd', clevel=3, shuffle=1)
@@ -427,7 +429,7 @@ def main(cfg):
     action_chunk_size = (100, action_arrays.shape[1])
     ground_truth_chunk_size = (100, ground_truth_arrays.shape[1], ground_truth_arrays.shape[2])
     tax3d_chunk_size = (100, tax3d_arrays.shape[1], tax3d_arrays.shape[2])
-
+    
     zarr_data.create_dataset('action_pcd', data=action_pcd_arrays, chunks=action_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('anchor_pcd', data=anchor_pcd_arrays, chunks=anchor_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('state', data=state_arrays, chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
@@ -442,11 +444,11 @@ def main(cfg):
     cprint(f'point cloud shape: {point_cloud_arrays.shape}, range: [{np.min(point_cloud_arrays)}, {np.max(point_cloud_arrays)}]', 'green')
     cprint(f'action shape: {action_arrays.shape}, range: [{np.min(action_arrays)}, {np.max(action_arrays)}]', 'green')
     cprint(f'goal truth shape: {ground_truth_arrays.shape}, range: [{np.min(ground_truth_arrays)}, {np.max(ground_truth_arrays)}]', 'green')
-    cprint(f'tax3d goal point cloud shape: {tax3d_arrays.shape}, range: [{np.min(tax3d_arrays)}, {np.max(tax3d_arrays)}]', 'green')
+    cprint(f'tax3d cloud shape: {tax3d_arrays.shape}, range: [{np.min(tax3d_arrays)}, {np.max(tax3d_arrays)}]', 'green')
     cprint(f'Saved zarr file to {save_dir}', 'green')
 
     # clean up
-    del action_pcd_arrays, anchor_pcd_arrays, ground_truth_arrays, action_arrays, episode_ends_arrays, tax3d_arrays
+    del action_pcd_arrays, anchor_pcd_arrays, ground_truth_arrays, action_arrays, episode_ends_arrays
     del zarr_root, zarr_data, zarr_meta
     del env
 
