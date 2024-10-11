@@ -62,7 +62,6 @@ def get_rigid_errors(
             T_pred = scale_transform(T_pred, scale_factor)
 
         T_pred_diff = T_gt.compose(T_pred.inverse())
-        print(T_pred_diff.get_matrix())
         
         error_t_max, error_t_min, error_t_mean = get_translation(T_pred_diff)
         error_R_max, error_R_min, error_R_mean = get_degree_angle(T_pred_diff)

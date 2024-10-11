@@ -90,15 +90,14 @@ def eval_precision(stage, dataloader, model, device, num_trials, cfg):
         pred_action_centroid = pred_world.mean(dim=1)
 
         t_err_centroid = torch.norm(gt_action_centroid - pred_action_centroid, dim=1).mean().cpu().item()
-        print(t_err_centroid)
  
         transformation_errors = get_pred_pcd_rigid_errors(batch=batch, pred_xyz=pred_dict["point"]["pred_world"], error_type= "demo", scale_factor=cfg.dataset.pcd_scale_factor)
         accumulate_metrics(metrics_list, transformation_errors, mean_rmse, t_err_centroid)
         
-        if cfg.online:
+        if cfg.wandb.online:
             # pick a random sample in the batch to visualize
             viz_idx = np.random.randint(0, batch["pc"].shape[0])
-            pred_viz = pred_dict[cfg.dataset.type]["pred"]
+            pred_viz = pred_dict[cfg.dataset.type]["pred"][viz_idx]
             viz_args = model.get_viz_args(batch, viz_idx)
 
             # getting predicted action point cloud
@@ -125,7 +124,8 @@ def main(cfg):
         )
     )
 
-    if cfg.online:
+    run = None
+    if cfg.wandb.online:
         run = wandb.init(
             entity=cfg.wandb.entity,
             project=cfg.wandb.project,
@@ -259,58 +259,58 @@ def main(cfg):
 
     train_metrics = {k: np.array([m[k] for m in train_metrics_list]) for k in train_metrics_list[0].keys()}
     train_mean_t_err = train_metrics["t_err"].mean()
+    train_mean_t_err_centroid = train_metrics["t_err_centroid"].mean()
     train_mean_r_err = train_metrics["r_err"].mean()
     train_mean_rmse_err = train_metrics["rmse"].mean()
     train_std_t_err = train_metrics["t_err"].std()
+    train_std_t_err_centroid = train_metrics["t_err_centroid"].std()
     train_std_r_err = train_metrics["r_err"].std()
     train_std_rmse_err = train_metrics["rmse"].std()
 
-    train_mean_t_err_centroid = train_metrics["t_err_centroid"].mean()
 
     val_metrics = {k: np.array([m[k] for m in val_metrics_list]) for k in val_metrics_list[0].keys()}
     val_mean_t_err = val_metrics["t_err"].mean()
+    val_mean_t_err_centroid = val_metrics["t_err_centroid"].mean()
     val_mean_r_err = val_metrics["r_err"].mean()
     val_mean_rmse_err = val_metrics["rmse"].mean()
     val_std_t_err = val_metrics["t_err"].std()
+    val_std_t_err_centroid = val_metrics["t_err_centroid"].std()
     val_std_r_err = val_metrics["r_err"].std()
     val_std_rmse_err = val_metrics["rmse"].std()
 
-    val_mean_t_err_centroid = val_metrics["t_err_centroid"].mean()
-
     print(f"Training Mean Translation Error: {train_mean_t_err}")
     print(f"Training Std Translation Error: {train_std_t_err}")
+    print(f"Training Mean Translation Error Centroid: {train_mean_t_err_centroid}")
+    print(f"Training Std Translation Error Centroid: {train_std_t_err_centroid}")
     print(f"Training Mean Rotation Error: {train_mean_r_err}")
     print(f"Training Std Rotation Error: {train_std_r_err}")
     print(f"Training Mean RMSE Error: {train_mean_rmse_err}")
     print(f"Training Std RMSE Error: {train_std_rmse_err}")
 
-    print(f"Training Mean Translation Error Centroid: {train_mean_t_err_centroid}")
-
     print(f"Validation Mean Translation Error: {val_mean_t_err}")
     print(f"Validation Std Translation Error: {val_std_t_err}")
+    print(f"Validation Mean Translation Error Centroid: {val_mean_t_err_centroid}")
+    print(f"Validation Std Translation Error Centroid: {val_std_t_err_centroid}")
     print(f"Validation Mean Rotation Error: {val_mean_r_err}")
     print(f"Validation Std Rotation Error: {val_std_r_err}")
     print(f"Validation Mean RMSE Error: {val_mean_rmse_err}")
     print(f"Validation Std RMSE Error: {val_std_rmse_err}")
 
-    print(f"Validation Mean Translation Error Centroid: {val_mean_t_err_centroid}")
 
-    if cfg.online:
+    if cfg.wandb.online:
 
         # Create a WandB table for metrics
         metrics_table = wandb.Table(
             columns=[
-                "Dataset", "Mean Translation Error", "Std Translation Error",
+                "Dataset", "Mean Translation Error", "Std Translation Error", "Mean Translation Centroid Error", "Std Translation Centroid Error",
                 "Mean Rotation Error", "Std Rotation Error", "Mean RMSE Error", "Std RMSE Error"
             ],
             data=[
-                ["Training", train_mean_t_err, train_std_t_err, train_mean_r_err, train_std_r_err, train_mean_rmse_err, train_std_rmse_err],
-                ["Validation", val_mean_t_err, val_std_t_err, val_mean_r_err, val_std_r_err, val_mean_rmse_err, val_std_rmse_err],
+                ["Training", train_mean_t_err, train_std_t_err, train_mean_t_err_centroid, train_std_t_err_centroid, train_mean_r_err, train_std_r_err, train_mean_rmse_err, train_std_rmse_err],
+                ["Validation", val_mean_t_err, val_std_t_err, val_mean_t_err_centroid, val_std_t_err_centroid, val_mean_r_err, val_std_r_err, val_mean_rmse_err, val_std_rmse_err],
             ]
         )
         wandb.log({"Evaluation Metrics": metrics_table})
-
-
 
 
 
