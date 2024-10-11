@@ -29,6 +29,7 @@ splits:
 coverage: False
 precision: False
 viz: False
+online: False
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
 # like if you want multiple checkpoints simultaneously, etc.
@@ -45,4 +46,4 @@ resources:
 wandb:
   # The group ***should*** be the same as the training group (so it can be bundled)
   # nicely in the UI. But you might have a one-off eval or something.
-  group: ???
+  group: null

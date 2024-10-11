@@ -14,12 +14,35 @@ from non_rigid.utils.transform_utils import (
     matrix_from_list,
 )
 
+def scale_transform(T, scale_factor):
+    # Extract the transformation matrix from the Transform3d object
+    T_mt = T.get_matrix()
+    device = T_mt.device  # This gives you the current device (either 'cuda' or 'cpu')
+    batch_size = T_mt.shape[0]
+
+    # Extract the rotation (top-left 3x3) and translation (top-right 3x1) components
+    R = T_mt[:, :3, :3] 
+    t = T_mt[:, 3, :3]
+
+    # Adjust the translation by the inverse of the scaling factor
+    t_adjusted = t / scale_factor
+
+    # Create a new transformation matrix with adjusted translation
+    T_adjusted = torch.eye(4).repeat(batch_size, 1, 1).to(device)
+
+
+    T_adjusted[:, :3, :3] = R  # Keep the original rotation
+    T_adjusted[:, 3, :3] = t_adjusted  # Use the adjusted translation
+    # Create a new Transform3d object using the adjusted transformation matrix
+    T_adjusted = Transform3d(matrix=T_adjusted)
+    return T_adjusted
 
 def get_rigid_errors(
     T_pred: Transform3d,
     T_gt: Transform3d,
     T_action2distractor_list: List[Transform3d] = None,
     error_type: str = "distractor_min",
+    scale_factor: float = 15.0,
 ) -> Dict[str, float]:
     """
     Compute rigid errors given a predicted rigid transform and ground truth rigid transforms.
@@ -34,8 +57,13 @@ def get_rigid_errors(
         dict: dictionary of rigid errors
     """
     if error_type == "demo":
-        T_pred_diff = T_gt.compose(T_pred.inverse())
+        if scale_factor is not None:
+            T_gt = scale_transform(T_gt, scale_factor)
+            T_pred = scale_transform(T_pred, scale_factor)
 
+        T_pred_diff = T_gt.compose(T_pred.inverse())
+        print(T_pred_diff.get_matrix())
+        
         error_t_max, error_t_min, error_t_mean = get_translation(T_pred_diff)
         error_R_max, error_R_min, error_R_mean = get_degree_angle(T_pred_diff)
 
@@ -431,6 +459,7 @@ def get_pred_pcd_rigid_errors(
     batch: Dict[str, torch.Tensor],
     pred_xyz: torch.Tensor,
     error_type: str = "demo",
+    scale_factor: float = 15.0,
 ) -> Dict[str, float]:
     """
     Compute rigid errors given a predicted point cloud and ground truth point cloud.
@@ -459,12 +488,11 @@ def get_pred_pcd_rigid_errors(
             for T_action2distractor in T_action2distractor_list
         ]
 
-    print(pred_xyz.shape, start_xyz.shape)
     pred_flows = pred_xyz - start_xyz
     T_pred = flow_to_tf(start_xyz, pred_flows)
 
     if error_type in ["demo", "distractor_min"]:
-        errors = get_rigid_errors(T_pred, T_gt_, T_action2distractor_list_, error_type)
+        errors = get_rigid_errors(T_pred, T_gt_, T_action2distractor_list_, error_type, scale_factor)
     elif error_type == "rpdiff_precision_wta":
         errors = get_rigid_available_pose_errors(T_pred, batch)
     return errors

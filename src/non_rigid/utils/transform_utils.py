@@ -176,7 +176,7 @@ def flow_to_tf(
     return Rotate(R).translate(t.squeeze(1))
 
 
-def get_degree_angle(T: Transform3d) -> Tuple[float, float, float]:
+def get_degree_angle(T: Transform3d) -> Tuple[float, float, float, float]:
     """
     Get the maximum, minimum, and mean rotation angles in degrees from a Transform3d object.
 
@@ -194,10 +194,11 @@ def get_degree_angle(T: Transform3d) -> Tuple[float, float, float]:
     max = torch.max(angle_rad_T).item()
     min = torch.min(angle_rad_T).item()
     mean = torch.mean(angle_rad_T).item()
+
     return max, min, mean
 
 
-def get_translation(T: Transform3d) -> Tuple[float, float, float]:
+def get_translation(T: Transform3d) -> Tuple[float, float, float, float]:
     """
     Get the maximum, minimum, and mean translation magnitudes from a Transform3d object.
 
@@ -212,6 +213,7 @@ def get_translation(T: Transform3d) -> Tuple[float, float, float]:
     max = torch.max(t_norm).item()
     min = torch.min(t_norm).item()
     mean = torch.mean(t_norm).item()
+
     return max, min, mean
 
 

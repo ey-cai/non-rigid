@@ -14,6 +14,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from non_rigid.utils.logging_utils import viz_predicted_vs_gt
 from non_rigid.datasets.rigid import NDFDataset, RigidDataModule
 from non_rigid.models.df_base import (
     DiffusionFlowBase, 
@@ -34,7 +35,7 @@ from non_rigid.utils.script_utils import (
     flatten_outputs
 )
 
-from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse
+from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pcd_rmse
 from non_rigid.metrics.rigid_metrics import get_pred_pcd_rigid_errors
 from non_rigid.models.dit.diffusion import create_diffusion
 from non_rigid.utils.pointcloud_utils import expand_pcd
@@ -64,7 +65,54 @@ def visualize_batched_point_clouds(point_clouds):
     )
 
 
+def eval_precision(stage, dataloader, model, device, num_trials, cfg):
+    metrics_list = []
+    # Function to accumulate errors in a list
+    def accumulate_metrics(metrics_list, transformation_errors, rmse_errors, t_err_centroid):
+        metrics_list.append({
+            "t_err": transformation_errors["error_t_mean"],
+            "r_err": transformation_errors["error_R_mean"],
+            "rmse": rmse_errors,
+            "t_err_centroid": t_err_centroid,
+        })
 
+    # Evaluating Training Precision
+    for batch in tqdm(dataloader, desc="Evaluating {} precision".format(stage)):
+        batch = {key: value.to(device) for key, value in batch.items()}
+        pred_dict = model.predict(batch, num_trials, progress=False)
+        pred_world = pred_dict["point"]["pred_world"] / cfg.dataset.pcd_scale_factor
+        goal_world = batch["pc"] / cfg.dataset.pcd_scale_factor
+
+        mean_rmse = pcd_rmse(pred_world, goal_world).mean().cpu().item()
+
+        
+        gt_action_centroid = goal_world.mean(dim=1)
+        pred_action_centroid = pred_world.mean(dim=1)
+
+        t_err_centroid = torch.norm(gt_action_centroid - pred_action_centroid, dim=1).mean().cpu().item()
+        print(t_err_centroid)
+ 
+        transformation_errors = get_pred_pcd_rigid_errors(batch=batch, pred_xyz=pred_dict["point"]["pred_world"], error_type= "demo", scale_factor=cfg.dataset.pcd_scale_factor)
+        accumulate_metrics(metrics_list, transformation_errors, mean_rmse, t_err_centroid)
+        
+        if cfg.online:
+            # pick a random sample in the batch to visualize
+            viz_idx = np.random.randint(0, batch["pc"].shape[0])
+            pred_viz = pred_dict[cfg.dataset.type]["pred"]
+            viz_args = model.get_viz_args(batch, viz_idx)
+
+            # getting predicted action point cloud
+            if cfg.dataset.type == "flow":
+                pred_action_viz = viz_args["pc_action_viz"] + pred_viz
+            elif cfg.dataset.type == "point":
+                pred_action_viz = pred_viz
+
+            # logging predicted vs ground truth point cloud
+            viz_args["pred_action_viz"] = pred_action_viz
+            predicted_vs_gt = viz_predicted_vs_gt(**viz_args)
+            wandb.log({f"{stage}/predicted_vs_gt": predicted_vs_gt})
+
+    return metrics_list
 
 @torch.no_grad()
 @hydra.main(config_path="../configs", config_name="eval", version_base="1.3")
@@ -76,6 +124,18 @@ def main(cfg):
             indent=4,
         )
     )
+
+    if cfg.online:
+        run = wandb.init(
+            entity=cfg.wandb.entity,
+            project=cfg.wandb.project,
+            group=cfg.wandb.group,
+            job_type=cfg.job_type,
+            save_code=True,
+            config=omegaconf.OmegaConf.to_container(
+                cfg, resolve=True, throw_on_missing=True
+            ),
+        )
     ######################################################################
     # Torch settings.
     ######################################################################
@@ -131,14 +191,6 @@ def main(cfg):
     model.eval()
 
 
-
-    VISUALIZE_DEMOS = False
-    VISUALIZE_PREDS = True
-    VISUALIZE_SINGLE = False
-    VISUALIZE_PULL = False
-
-
-
     ######################################################################
     # Create the trainer.
     # Bit of a misnomer here, we're not doing training. But we are gonna
@@ -156,6 +208,7 @@ def main(cfg):
         logger=False,
     )
 
+
     ######################################################################
     # Run the model on the train/val/test sets.
     # This outputs a list of dictionaries, one for each batch. This
@@ -165,488 +218,187 @@ def main(cfg):
     # function is.
     ######################################################################
     
-    if cfg.coverage:
-        train_outputs, val_outputs = trainer.predict(
-            model,
-            dataloaders=[
-                datamodule.train_dataloader(),
-                datamodule.val_dataloader(),
-            ]
-            )
+    ### Running Metrics Eval ###
+    model.to(device)
+    # precision_dm = 2
+
+    # creating precision-specific datamodule - needs specific batch size
+    # if "multi_cloth" in cfg.dataset:
+    #     bs = int(400 / cfg.dataset.multi_cloth.size)
+    # else:
+    #     raise NotImplementedError("Precision metrics only supported for multi-cloth datasets.")
     
+    train_bs = 16
+    val_bs = 16
+    
+    # We should not be using WTAs for performance evaluation, since ground truth should be assumed unavailable
+    '''
+    if cfg.wta:
+        num_trials = cfg.inference.num_wta_trials   # if use winner-takes-all, we evaluate the best performance over multiple trials
+    else:
+        num_trials = 1
+    '''
+    num_trials = 1
 
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True)
-        fig_wta = make_subplots(rows=2, cols=1, shared_xaxes=True)
-        color_dict = {
-            "train": "blue",
-            "val": "red",
-        }
+    # cfg.dataset.sample_size_action = -1
+    datamodule = RigidDataModule(
+        # root=data_root,
+        batch_size=train_bs,
+        val_batch_size=val_bs,
+        num_workers=cfg.resources.num_workers,
+        dataset_cfg=cfg.dataset,
+    )
+    # just need the dataloaders
+    datamodule.setup(stage="predict")
+    train_loader = datamodule.train_dataloader()
+    val_loader = datamodule.val_dataloader()
 
-        for outputs_list, name in [
-            (train_outputs, "train"),
-            (val_outputs, "val"),
-        ]:
-            # Put everything on CPU, and flatten a list of dicts into one dict.
-            out_cpu = [pytree.tree_map(lambda x: x.cpu(), o) for o in outputs_list]
-            outputs = flatten_outputs(out_cpu)
+    train_metrics_list = eval_precision('train', train_loader, model, device, num_trials, cfg)
+    val_metrics_list = eval_precision('val', val_loader, model, device, num_trials, cfg)
 
-            # Plot histogram
-            fig.add_trace(go.Histogram(
-                x=outputs["rmse"].flatten(), 
-                nbinsx=100, 
-                name=f"{name} RMSE",
-                legendgroup=f"{name} RMSE",
-                marker=dict(
-                    color=color_dict[name],
-                ),
-            ), row=1, col=1)
 
-            fig.add_trace(go.Box(
-                x=outputs["rmse"].flatten(),
-                marker_symbol='line-ns-open',
-                marker=dict(
-                    color=color_dict[name],
-                ),
-                boxpoints='all',
-                pointpos=0,
-                hoveron='points',
-                name=f"{name} RMSE",
-                showlegend=False,
-                legendgroup=f"{name} RMSE",
-            ), row=2, col=1)
+    train_metrics = {k: np.array([m[k] for m in train_metrics_list]) for k in train_metrics_list[0].keys()}
+    train_mean_t_err = train_metrics["t_err"].mean()
+    train_mean_r_err = train_metrics["r_err"].mean()
+    train_mean_rmse_err = train_metrics["rmse"].mean()
+    train_std_t_err = train_metrics["t_err"].std()
+    train_std_r_err = train_metrics["r_err"].std()
+    train_std_rmse_err = train_metrics["rmse"].std()
 
-            # Plot WTA histogram
-            fig_wta.add_trace(go.Histogram(
-                x=outputs["rmse_wta"].flatten(), 
-                nbinsx=100, 
-                name=f"{name} RMSE WTA",
-                legendgroup=f"{name} RMSE WTA",
-                marker=dict(
-                    color=color_dict[name],
-                ),
-            ), row=1, col=1)
+    train_mean_t_err_centroid = train_metrics["t_err_centroid"].mean()
 
-            fig_wta.add_trace(go.Box(
-                x=outputs["rmse_wta"].flatten(),
-                marker_symbol='line-ns-open',
-                marker=dict(
-                    color=color_dict[name],
-                ),
-                boxpoints='all',
-                pointpos=0,
-                hoveron='points',
-                name=f"{name} RMSE WTA",
-                showlegend=False,
-                legendgroup=f"{name} RMSE WTA",
-            ), row=2, col=1)
+    val_metrics = {k: np.array([m[k] for m in val_metrics_list]) for k in val_metrics_list[0].keys()}
+    val_mean_t_err = val_metrics["t_err"].mean()
+    val_mean_r_err = val_metrics["r_err"].mean()
+    val_mean_rmse_err = val_metrics["rmse"].mean()
+    val_std_t_err = val_metrics["t_err"].std()
+    val_std_r_err = val_metrics["r_err"].std()
+    val_std_rmse_err = val_metrics["rmse"].std()
 
-            # Compute the metrics
-            rmse = torch.mean(outputs["rmse"])
-            rmse_wta = torch.mean(outputs["rmse_wta"])
-            print(f"{name} rmse: {rmse}, rmse wta: {rmse_wta}")
+    val_mean_t_err_centroid = val_metrics["t_err_centroid"].mean()
 
-        fig.show()
-        fig_wta.show()
+    print(f"Training Mean Translation Error: {train_mean_t_err}")
+    print(f"Training Std Translation Error: {train_std_t_err}")
+    print(f"Training Mean Rotation Error: {train_mean_r_err}")
+    print(f"Training Std Rotation Error: {train_std_r_err}")
+    print(f"Training Mean RMSE Error: {train_mean_rmse_err}")
+    print(f"Training Std RMSE Error: {train_std_rmse_err}")
 
-    if cfg.precision:
-        model.to(device)
-        # precision_dm = 2
+    print(f"Training Mean Translation Error Centroid: {train_mean_t_err_centroid}")
 
-        # creating precision-specific datamodule - needs specific batch size
-        # if "multi_cloth" in cfg.dataset:
-        #     bs = int(400 / cfg.dataset.multi_cloth.size)
-        # else:
-        #     raise NotImplementedError("Precision metrics only supported for multi-cloth datasets.")
-        
-        train_bs = 16
-        val_bs = 16
-        num_wta_trials = 1 # assuming we don't need to do multiple trials for precision
+    print(f"Validation Mean Translation Error: {val_mean_t_err}")
+    print(f"Validation Std Translation Error: {val_std_t_err}")
+    print(f"Validation Mean Rotation Error: {val_mean_r_err}")
+    print(f"Validation Std Rotation Error: {val_std_r_err}")
+    print(f"Validation Mean RMSE Error: {val_mean_rmse_err}")
+    print(f"Validation Std RMSE Error: {val_std_rmse_err}")
 
-        train_metrics_list = []
-        val_metrics_list = []
+    print(f"Validation Mean Translation Error Centroid: {val_mean_t_err_centroid}")
 
-        # Function to accumulate errors in a list
-        def accumulate_metrics(metrics_list, errors):
-            metrics_list.append({
-                "t_err": errors["error_t_mean"],
-                "r_err": errors["error_R_mean"]
-            })
-        
-        # cfg.dataset.sample_size_action = -1
-        datamodule = RigidDataModule(
-            # root=data_root,
-            batch_size=train_bs,
-            val_batch_size=val_bs,
-            num_workers=cfg.resources.num_workers,
-            dataset_cfg=cfg.dataset,
+    if cfg.online:
+
+        # Create a WandB table for metrics
+        metrics_table = wandb.Table(
+            columns=[
+                "Dataset", "Mean Translation Error", "Std Translation Error",
+                "Mean Rotation Error", "Std Rotation Error", "Mean RMSE Error", "Std RMSE Error"
+            ],
+            data=[
+                ["Training", train_mean_t_err, train_std_t_err, train_mean_r_err, train_std_r_err, train_mean_rmse_err, train_std_rmse_err],
+                ["Validation", val_mean_t_err, val_std_t_err, val_mean_r_err, val_std_r_err, val_mean_rmse_err, val_std_rmse_err],
+            ]
         )
-        # just need the dataloaders
-        datamodule.setup(stage="predict")
-        train_loader = datamodule.train_dataloader()
-        val_loader = datamodule.val_dataloader()
-
-        for batch in tqdm(train_loader, desc="Evaluating Training Precision"):
-            batch = {key: value.to(device) for key, value in batch.items()}
-            pred_dict = model.predict(batch, num_wta_trials, progress=False)
-            pred = pred_dict["point"]["pred_world"]
-            errors = get_pred_pcd_rigid_errors(batch=batch, pred_xyz=pred, error_type= "demo")
-            accumulate_metrics(train_metrics_list, errors)
-
-        for batch in tqdm(val_loader, desc="Evaluating Training Precision"):
-            batch = {key: value.to(device) for key, value in batch.items()}
-            pred_dict = model.predict(batch, num_wta_trials, progress=False)
-            pred = pred_dict["point"]["pred_world"]
-            errors = get_pred_pcd_rigid_errors(batch=batch, pred_xyz=pred, error_type= "demo")
-            accumulate_metrics(val_metrics_list, errors)
-
-        train_metrics = {k: np.array([m[k] for m in train_metrics_list]) for k in train_metrics_list[0].keys()}
-        train_mean_t_err = train_metrics["t_err"].mean()
-        train_mean_r_err = train_metrics["r_err"].mean()
-
-        val_metrics = {k: np.array([m[k] for m in val_metrics_list]) for k in val_metrics_list[0].keys()}
-        val_mean_t_err = val_metrics["t_err"].mean()
-        val_mean_r_err = val_metrics["r_err"].mean()
-
-        print(f"Training Mean Translation Error: {train_mean_t_err}")
-        print(f"Training Mean Rotation Error: {train_mean_r_err}")
-        print(f"Validation Mean Translation Error: {val_mean_t_err}")
-        print(f"Validation Mean Rotation Error: {val_mean_r_err}")
-
-    if cfg.viz:
-        if VISUALIZE_DEMOS:
-            model.to(device)
-            bs = 12
-            train_dataloader = torch.utils.data.DataLoader(
-                datamodule.train_dataset, batch_size=400, shuffle=True
-            )
-            val_dataloader = torch.utils.data.DataLoader(
-                datamodule.val_dataset, batch_size=40, shuffle=True
-            )
-            val_ood_loader = torch.utils.data.DataLoader(
-                datamodule.val_ood_dataset, batch_size=40, shuffle=True
-            )
-
-            train_batch = next(iter(train_dataloader))
-            val_batch = next(iter(val_dataloader))
-            val_ood_batch = next(iter(val_ood_loader))
-
-
-            # train_dict = model.predict_wta(train_batch, 'train')
-            # val_dict = model.predict_wta(val_batch, 'val')
-            # val_ood_dict = model.predict_wta(val_ood_batch, 'val_ood')
-
-            # val_errors = val_dict['rmse']
-            # val_ood_errors = val_ood_dict['rmse']
-
-
-            cdw_errs = np.load('/home/eycai/datasets/nrp/cd-w.npz')
-            cd_errs = np.load('/home/eycai/datasets/nrp/tax3dcd.npz')
-
-            vem_cdw = cdw_errs['vem']
-            voem_cdw = cdw_errs['voem']
-            vem_cd = cd_errs['vem']
-            voem_cd = cd_errs['voem']
+        wandb.log({"Evaluation Metrics": metrics_table})
 
 
 
-            val_errors = np.random.rand(40)
-            val_ood_errors = np.random.rand(40) * 4
-
-            train_pc = train_batch["pc_anchor"]
-            val_pc = val_batch["pc_anchor"]
-            val_ood_pc = val_ood_batch["pc_anchor"]
 
 
-            train_locs = torch.mean(train_pc, dim=1)
-            val_locs = torch.mean(val_pc, dim=1)
-            val_ood_locs = torch.mean(val_ood_pc, dim=1)
-            # plotly go to scatter plot locs
-            fig = go.Figure()
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                                row_heights=[0.5, 0.5],
-                                subplot_titles=("CD-W", "TAX3D-CP (Ours)"))
 
-            # ----------- PLOTTING X VS Y ----------------
-            fig.add_trace(go.Scatter(
-                x=train_locs[:, 0].cpu(),
-                y=train_locs[:, 1].cpu(),
-                mode='markers',
-                marker_symbol='x-thin',
-                marker=dict(
-                    size=20,
-                    color='rgb(38,133,249)',
-                    line=dict(
-                        width=4,
-                        color='rgb(38,133,249)'
-                    ),
-                ),
-                name='Train',
-            ), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=val_locs[:, 0].cpu(),
-                y=val_locs[:, 1].cpu(),
-                mode='markers',
-                marker_symbol='square',
-                marker=dict(
-                    size=20,
-                    color=vem_cdw,
-                    coloraxis='coloraxis',
-                    line=dict(
-                        width=2,
-                        color='Black'
-                    ),
-                ),
-                name='Unseen',
-            ), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=val_ood_locs[:, 0].cpu(),
-                y=val_ood_locs[:, 1].cpu(),
-                mode='markers',
-                marker_symbol='diamond',
-                marker=dict(
-                    size=20,
-                    color=voem_cdw,
-                    coloraxis='coloraxis',
-                    line=dict(
-                        width=2,
-                        color='Black'
-                    ),
-                ),
-                name='Unseen (OOD)',
-            ), row=1, col=1)
-
-
-            # ----------- PLOTTING X VS Z ----------------
-            fig.add_trace(go.Scatter(
-                x=train_locs[:, 0].cpu(),
-                y=train_locs[:, 1].cpu(),
-                mode='markers',
-                marker_symbol='x-thin',
-                marker=dict(
-                    size=20,
-                    color='rgb(38,133,249)',
-                    line=dict(
-                        width=4,
-                        color='rgb(38,133,249)'
-                    ),
-                ),
-                name='Train',
-                showlegend=False,
-            ), row=2, col=1)
-            fig.add_trace(go.Scatter(
-                x=val_locs[:, 0].cpu(),
-                y=val_locs[:, 1].cpu(),
-                mode='markers',
-                marker_symbol='square',
-                marker=dict(
-                    size=20,
-                    color=vem_cd,
-                    coloraxis='coloraxis',
-                    line=dict(
-                        width=2,
-                        color='Black'
-                    ),
-                ),
-                name='Unseen',
-                showlegend=False,
-            ), row=2, col=1)
-            fig.add_trace(go.Scatter(
-                x=val_ood_locs[:, 0].cpu(),
-                y=val_ood_locs[:, 1].cpu(),
-                mode='markers',
-                marker_symbol='diamond',
-                marker=dict(
-                    size=20,
-                    color=voem_cd,
-                    coloraxis='coloraxis',
-                    line=dict(
-                        width=2,
-                        color='Black'
-                    ),
-                ),
-                name='Unseen (OOD)',
-                showlegend=False,
-            ), row=2, col=1)
-
-
-            fig.update_layout({
-                'plot_bgcolor': 'rgba(0, 0, 0, 0)',
-                'paper_bgcolor': 'rgba(0, 0, 0, 0)',
-                'font': dict(
-                    family="Arial",
-                    size=52,
-                    color="Black"
-                ),
-                })
-            fig.update_annotations(font_size=72)
-            fig.update_xaxes(showline=True, linewidth=2, linecolor='black')
-            fig.update_yaxes(showline=True, linewidth=2, linecolor='black')
-            fig.update_yaxes(title_text="Y", row=1, col=1)
-            fig.update_yaxes(title_text="Y", row=2, col=1)
-            fig.update_xaxes(title_text="X", row=2, col=1)
-
-            fig.update_layout(legend=dict(
-                # yanchor="top",
-                # y=0.65,
-                xanchor="left",
-                x=0.68,
-                orientation="h",
-            ))
-            fig.update_layout(
-                coloraxis_colorbar=dict(
-                    title="RMSE",
-                ),
-                coloraxis=dict(
-                    colorscale=['green', 'red'],
-                    #cmin=0,
-                    #cmax=4,
+    '''
+    if cfg.coverage:
+            train_outputs, val_outputs = trainer.predict(
+                model,
+                dataloaders=[
+                    datamodule.train_dataloader(),
+                    datamodule.val_dataloader(),
+                ]
                 )
-            )
-
-            fig.show()
-            quit()
-            visualize_batched_point_clouds([train_pc, val_pc, val_ood_pc]).show()
-
-            pass
-
-        if VISUALIZE_PREDS:
-            model.to(device)
-            dataloader = torch.utils.data.DataLoader(
-                datamodule.val_dataset, batch_size=1, shuffle=False
-            )
-            iterator = iter(dataloader)
-            for _ in range(32):
-                batch = next(iterator)
-            pred_dict = model.predict(batch, 50)
-            # extracting anchor point cloud depending on model type
-            if cfg.model.type == "flow":
-                scene_pc = batch["pc"].flatten(0, 1).cpu().numpy()
-                seg = batch["seg"].flatten(0, 1).cpu().numpy()
-                anchor_pc = scene_pc[~seg.astype(bool)]
-            else:
-                anchor_pc = batch["pc_anchor"].flatten(0, 1).cpu().numpy()
-
-            # pred_action = pred_dict["pred_action"][[8]] # 0,8
-            pred_action = pred_dict["pred_action"]
-            pred_action_size = pred_action.shape[1]
-            pred_action = pred_action.flatten(0, 1).cpu().numpy()
-            # color-coded segmentations
-            anchor_seg = np.zeros(anchor_pc.shape[0], dtype=np.int64)
-            # if cfg.model.type == "flow":
-            #     pred_action_size = cfg.dataset.sample_size_action + cfg.dataset.sample_size_anchor
-            # else:
-            #     pred_action_size = cfg.dataset.sample_size_action
-            pred_action_seg = np.array([np.arange(1, 11)] * pred_action_size).T.flatten()
-            # visualize
-            fig = vpl.segmentation_fig(
-                np.concatenate((anchor_pc, pred_action)),
-                np.concatenate((anchor_seg, pred_action_seg)),
-            )
-            fig.show()
-
-        if VISUALIZE_PULL:
-            model.to(device)
-            dataloader = torch.utils.data.DataLoader(
-                datamodule.val_dataset, batch_size=1, shuffle=False
-            )
-            iterator = iter(dataloader)
-            for _ in range(11):
-                batch = next(iterator)
-            pred_dict = model.predict(batch, 1)
-            results = pred_dict["results"]
-            action_pc = batch["pc_action"].flatten(0, 1).cpu()
-            # pred_action = .cpu()
-            if cfg.model.type == "flow":
-                # pcd = batch["pc_action"].flatten(0, 1).cpu()
-                pcd = torch.cat([
-                    batch["pc_action"].flatten(0, 1),
-                    pred_dict["pred_action"].flatten(0, 1).cpu(),
-                ]).cpu()
-            elif cfg.model.type == "flow_cross":
-                pcd = torch.cat([
-                    batch["pc_anchor"].flatten(0, 1),
-                    batch["pc_action"].flatten(0, 1),
-                    # pred_dict['pred_action'].flatten(0, 1).cpu(),
-                ], dim=0).cpu()
-            elif cfg.model.type == "point_cross":
-                pcd = torch.cat([
-                    batch["pc_anchor"].flatten(0, 1),
-                    pred_dict["pred_action"].flatten(0, 1).cpu()
-                ], dim=0).cpu()    
-            
-            # visualize
-            animation = FlowNetAnimation()
-            for noise_step in tqdm(results):
-                pred_step = noise_step[0].permute(1, 0).cpu()
-                if cfg.model.type == "point_cross":
-                    flows = torch.zeros_like(pred_step)
-                    animation.add_trace(
-                        pcd,
-                        [flows],
-                        [pred_step],
-                        "red",
-                    )
-                else:
-                    animation.add_trace(
-                        pcd,
-                        [action_pc],# if cfg.model.type == "flow_cross" else pcd],
-                        [pred_step],
-                        "red",
-                    )
-            fig = animation.animate()
-            fig.show()
-
-
-    if VISUALIZE_SINGLE:
-        model.to(device)
-        dataloader = torch.utils.data.DataLoader(
-            datamodule.val_dataset, batch_size=1, shuffle=False
-        )
-        batch = next(iter(dataloader))
-        pred_dict = model.predict(batch, 1)
-
-        results = pred_dict["results"]
-        action_pc = batch["pc_action"].flatten(0, 1).cpu()
-        # pred_action = .cpu()
-        if cfg.model.type == "flow":
-            # pcd = batch["pc_action"].flatten(0, 1).cpu()
-            pcd = torch.cat([
-                batch["pc_action"].flatten(0, 1),
-                pred_dict["pred_action"].flatten(0, 1).cpu(),
-            ]).cpu()
-        elif cfg.model.type == "flow_cross":
-            pcd = torch.cat([
-                batch["pc_anchor"].flatten(0, 1),
-                batch["pc_action"].flatten(0, 1),
-                # pred_dict['pred_action'].flatten(0, 1).cpu(),
-            ], dim=0).cpu()
-        elif cfg.model.type == "point_cross":
-            pcd = torch.cat([
-                batch["pc_anchor"].flatten(0, 1),
-                pred_dict["pred_action"].flatten(0, 1).cpu()
-            ], dim=0).cpu()    
         
-        # visualize
-        animation = FlowNetAnimation()
-        for noise_step in tqdm(results):
-            pred_step = noise_step[0].permute(1, 0).cpu()
-            if cfg.model.type == "point_cross":
-                flows = torch.zeros_like(pred_step)
-                animation.add_trace(
-                    pcd,
-                    [flows],
-                    [pred_step],
-                    "red",
-                )
-            else:
-                animation.add_trace(
-                    pcd,
-                    [action_pc],# if cfg.model.type == "flow_cross" else pcd],
-                    [pred_step],
-                    "red",
-                )
-        fig = animation.animate()
-        fig.show()
+
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True)
+            fig_wta = make_subplots(rows=2, cols=1, shared_xaxes=True)
+            color_dict = {
+                "train": "blue",
+                "val": "red",
+            }
+
+            for outputs_list, name in [
+                (train_outputs, "train"),
+                (val_outputs, "val"),
+            ]:
+                # Put everything on CPU, and flatten a list of dicts into one dict.
+                out_cpu = [pytree.tree_map(lambda x: x.cpu(), o) for o in outputs_list]
+                outputs = flatten_outputs(out_cpu)
+
+                # Plot histogram
+                fig.add_trace(go.Histogram(
+                    x=outputs["rmse"].flatten(), 
+                    nbinsx=100, 
+                    name=f"{name} RMSE",
+                    legendgroup=f"{name} RMSE",
+                    marker=dict(
+                        color=color_dict[name],
+                    ),
+                ), row=1, col=1)
+
+                fig.add_trace(go.Box(
+                    x=outputs["rmse"].flatten(),
+                    marker_symbol='line-ns-open',
+                    marker=dict(
+                        color=color_dict[name],
+                    ),
+                    boxpoints='all',
+                    pointpos=0,
+                    hoveron='points',
+                    name=f"{name} RMSE",
+                    showlegend=False,
+                    legendgroup=f"{name} RMSE",
+                ), row=2, col=1)
+
+                # Plot WTA histogram
+                fig_wta.add_trace(go.Histogram(
+                    x=outputs["rmse_wta"].flatten(), 
+                    nbinsx=100, 
+                    name=f"{name} RMSE WTA",
+                    legendgroup=f"{name} RMSE WTA",
+                    marker=dict(
+                        color=color_dict[name],
+                    ),
+                ), row=1, col=1)
+
+                fig_wta.add_trace(go.Box(
+                    x=outputs["rmse_wta"].flatten(),
+                    marker_symbol='line-ns-open',
+                    marker=dict(
+                        color=color_dict[name],
+                    ),
+                    boxpoints='all',
+                    pointpos=0,
+                    hoveron='points',
+                    name=f"{name} RMSE WTA",
+                    showlegend=False,
+                    legendgroup=f"{name} RMSE WTA",
+                ), row=2, col=1)
+
+                # Compute the metrics
+                rmse = torch.mean(outputs["rmse"])
+                rmse_wta = torch.mean(outputs["rmse_wta"])
+                print(f"{name} rmse: {rmse}, rmse wta: {rmse_wta}")
+
+            fig.show()
+            fig_wta.show()
+    '''
 
 if __name__ == "__main__":
     main()

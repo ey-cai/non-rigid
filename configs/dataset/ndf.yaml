@@ -1,5 +1,5 @@
 name: ndf
-data_dir: /home/odonca/workspace/rpad/data/equivariant_pose_graph/data/mug_place
+data_dir: /home/lyuxinghe/non-rigid/datasets/ndf/mugplace
 # data_dir: /home/odonca/workspace/rpad/data/rpdiff/data/overfit_1r_1m_1d
 type: point
 

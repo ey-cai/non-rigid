@@ -37,6 +37,7 @@ python scripts/eval_rigid.py \
   $DATASET_PARAMS \
   resources.gpus=[${GPU_INDEX}] \
   checkpoint.reference=r-pad/non_rigid/model-${CHECKPOINT}:v0 \
+  checkpoint.run_id=${CHECKPOINT} \
   $COMMAND
 
 <<COMMENT
