@@ -78,7 +78,7 @@ def main(cfg):
     #save_tax3d = args.save_tax3d
     #save_rollout_vids = args.save_rollout_vids
 
-    random_cloth_geometry = args.random_cloth_geometry
+    random_cloth_geometry = args.random_cloth_geometry # set it to true later
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
     # random_anchor_pose = args.random_anchor_pose

@@ -138,17 +138,14 @@ class DedoDataset(BaseDataset):
     #     return val_set
     
     def get_normalizer(self, mode='limits', **kwargs):
-        # this function should only be called after action_pcd and anchor_pcd have already been combined
+        # Normalize force
         data = {
             'action': self.replay_buffer['action'],
-            'agent_pos': self.replay_buffer['state'][...,:],
-            'point_cloud': self.replay_buffer['point_cloud'],
+            # 'agent_pos': self.replay_buffer['state'][...,:],
+            # 'point_cloud': self.replay_buffer['point_cloud'],
         }
         normalizer = LinearNormalizer()
         normalizer.fit(data, last_n_dims=1, mode=mode,**kwargs)
-        # normalizer['action_pcd'] = SingleFieldLinearNormalizer().create_identity()
-        # normalizer['anchor_pcd'] = SingleFieldLinearNormalizer().create_identity()
-
         return normalizer
     
     def __len__(self) -> int:
@@ -178,23 +175,23 @@ class DedoDataset(BaseDataset):
         if self.random_augment:
             # sample transform and compute mean across all timesteps
             T = random_so2()
-            point_cloud = torch_data['obs']['point_cloud'] # includes action and anchor
+            point_cloud = torch_data['obs']['point_cloud'] # includes action, achor, and ground truth
             agent_pos = torch_data['obs']['agent_pos']
             action = torch_data['action']
 
             point_cloud_mean = point_cloud.mean(dim=[0, 1], keepdim=True)
             # transform point cloud
-            point_cloud = T.transform_points(point_cloud - point_cloud_mean) + point_cloud_mean
+            point_cloud = T.transform_points(point_cloud - point_cloud_mean) # + point_cloud_mean
 
             # transform agent pos
-            agent_pos[:, 0:3] = T.transform_points(agent_pos[:, 0:3] - point_cloud_mean) + point_cloud_mean
-            agent_pos[:, 6:9] = T.transform_points(agent_pos[:, 6:9] - point_cloud_mean) + point_cloud_mean
+            agent_pos[:, 0:3] = T.transform_points(agent_pos[:, 0:3] - point_cloud_mean) # + point_cloud_mean
+            agent_pos[:, 6:9] = T.transform_points(agent_pos[:, 6:9] - point_cloud_mean) # + point_cloud_mean
             agent_pos[:, 3:6] = T.transform_points(agent_pos[:, 3:6])
             agent_pos[:, 9:12] = T.transform_points(agent_pos[:, 9:12])
 
             # transform action
-            # action[:, 0:3] = T.transform_points(action[:, 0:3] - point_cloud_mean) + point_cloud_mean
-            # action[:, 3:6] = T.transform_points(action[:, 3:6] - point_cloud_mean) + point_cloud_mean
+            action[:, 0:3] = T.transform_points(action[:, 0:3])
+            action[:, 3:6] = T.transform_points(action[:, 3:6])
 
             # update torch data
             torch_data['obs']['point_cloud'] = point_cloud

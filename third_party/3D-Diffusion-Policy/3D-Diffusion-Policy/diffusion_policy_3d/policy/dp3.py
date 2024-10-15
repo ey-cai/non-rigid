@@ -189,8 +189,13 @@ class DP3(BasePolicy):
         result: must include "action" key
         """
         # normalize input
-        nobs = self.normalizer.normalize(obs_dict)
-        # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
+        # nobs = self.normalizer.normalize(obs_dict)
+
+        nobs = obs_dict
+        point_cloud_mean = nobs['point_cloud'][:, :1160, :].mean(dim=[0, 1], keepdim=True) # Centroid of cloth and anchor
+        nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        nobs = {key: tensor.float() for key, tensor in nobs.items()}
+        
         if not self.use_pc_color:
             nobs['point_cloud'] = nobs['point_cloud'][..., :3]
         this_n_point_cloud = nobs['point_cloud']
@@ -266,7 +271,14 @@ class DP3(BasePolicy):
 
     def compute_loss(self, batch):
         # normalize input
-        nobs = self.normalizer.normalize(batch['obs'])
+        # nobs = self.normalizer.normalize(batch['obs'])
+        
+        # Center point cloud
+        nobs = batch['obs']
+        # nobs = {key: tensor.numpy() for key, tensor in nobs.items()}
+        # point_cloud_mean = nobs['point_cloud'][:, :1160, :].mean(dim=[0, 1], keepdim=True)
+        # nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+
         nactions = self.normalizer['action'].normalize(batch['action'])
 
         if not self.use_pc_color:
