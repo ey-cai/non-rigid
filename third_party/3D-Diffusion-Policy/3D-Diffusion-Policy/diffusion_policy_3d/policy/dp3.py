@@ -192,7 +192,7 @@ class DP3(BasePolicy):
         # nobs = self.normalizer.normalize(obs_dict)
 
         nobs = obs_dict
-        point_cloud_mean = nobs['point_cloud'][:, :1160, :].mean(dim=[0, 1], keepdim=True) # Centroid of cloth and anchor
+        point_cloud_mean = nobs['point_cloud'][:, :, :1160, :].mean(dim=[0, 1, 2], keepdim=True) # Centroid of cloth and anchor
         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
         nobs = {key: tensor.float() for key, tensor in nobs.items()}
         
@@ -275,9 +275,9 @@ class DP3(BasePolicy):
         
         # Center point cloud
         nobs = batch['obs']
-        # nobs = {key: tensor.numpy() for key, tensor in nobs.items()}
-        # point_cloud_mean = nobs['point_cloud'][:, :1160, :].mean(dim=[0, 1], keepdim=True)
-        # nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        point_cloud_mean = nobs['point_cloud'][:, :, :1160, :].mean(dim=[0, 1, 2], keepdim=True)
+        nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        nobs = {key: tensor.float() for key, tensor in nobs.items()}
 
         nactions = self.normalizer['action'].normalize(batch['action'])
 
