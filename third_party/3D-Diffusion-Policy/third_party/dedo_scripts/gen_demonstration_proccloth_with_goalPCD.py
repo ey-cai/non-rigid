@@ -22,11 +22,11 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='/home/yingyuan/non-rigid/datasets/rand_anchor_pose_new_flow', help='directory to save data')
-    parser.add_argument('--num_episodes', type=int, default=40, help='number of episodes to run')
-    parser.add_argument('--action_num_points', type=int, default=580, help='number of points in action point cloud')
-    parser.add_argument('--anchor_num_points', type=int, default=580, help='number of points in anchor point cloud')
+    parser.add_argument('--num_episodes', type=int, default=64, help='number of episodes to run')
+    parser.add_argument('--action_num_points', type=int, default=625, help='number of points in action point cloud')
+    parser.add_argument('--anchor_num_points', type=int, default=625, help='number of points in anchor point cloud')
     # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
-    parser.add_argument('--split', type=str, default='val_ood', help='train/val/val_ood split')
+    parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
     parser.add_argument('--random_cloth_pose', action='store_true', help='randomize cloth pose')
@@ -70,6 +70,8 @@ def main(cfg):
     #save_demos = args.save_demos
     #save_tax3d = args.save_tax3d
     #save_rollout_vids = args.save_rollout_vids
+    args.random_cloth_geometry = True
+    args.random_anchor_pose = True
     random_cloth_geometry = args.random_cloth_geometry
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
@@ -207,7 +209,6 @@ def main(cfg):
                 }
             
             # randomizing anchor pose
-            random_anchor_pose = True
             if random_anchor_pose:
                 if split == 'val_ood':
                     rigid_rot, rigid_trans = env.random_anchor_transform_ood()
@@ -282,6 +283,11 @@ def main(cfg):
                     # # We do not downsample action pcd here to have one-to-one correspondence to goal pcd.
                     # if obs_action_pcd.shape[0] > 512:
                     #     obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
+                    # To maintain the same shape among all clothes, we repeat the first point in the action pcd.
+                    if obs_action_pcd.shape[0] < action_num_points:
+                        pad = np.zeros((action_num_points - obs_action_pcd.shape[0], 3))
+                        pad[:, :3] = obs_action_pcd[0]
+                        obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
                     if obs_anchor_pcd.shape[0] > anchor_num_points:
                         obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
                     # update episode data
@@ -330,10 +336,15 @@ def main(cfg):
                 state_arrays.extend(state_arrays_sub_list)
                 action_arrays.extend(action_arrays_sub_list)
                 # also adding goal pcd from ground truth and tax3d
+                # padding ground truth and tax3d goal pcd
                 len_episode = len(action_pcd_arrays_sub)
                 ground_truth_subarray = np.tile(np.expand_dims(obs["action_pcd"], axis=0), (len_episode, 1, 1))
-                ground_truth_arrays.extend(ground_truth_subarray)
+                pad_gt = np.tile(ground_truth_subarray[:, 0].reshape(-1, 1, 3), (1, action_num_points - ground_truth_subarray.shape[1], 1))
+                ground_truth_subarray = np.concatenate([ground_truth_subarray, pad_gt], axis=1)
                 tax3d_subarray = np.tile(tax3D_goalPCD, (len_episode, 1, 1))
+                pad_tax3d = np.tile(tax3d_subarray[:, 0].reshape(-1, 1, 3), (1, action_num_points - tax3d_subarray.shape[1], 1))
+                tax3d_subarray = np.concatenate([tax3d_subarray, pad_tax3d], axis=1)
+                ground_truth_arrays.extend(ground_truth_subarray)
                 tax3d_arrays.extend(tax3d_subarray)
                 
                 # debug
@@ -342,9 +353,9 @@ def main(cfg):
                 # point_geometry = o3d.geometry.PointCloud()
                 # goal_geometry = o3d.geometry.PointCloud()
                 # anchor_geometry = o3d.geometry.PointCloud()
-                # point_geometry.points = o3d.utility.Vector3dVector(action_pcd_arrays_sub_list[0][:200])
+                # point_geometry.points = o3d.utility.Vector3dVector(action_pcd_arrays_sub_list[0])
                 # point_geometry.paint_uniform_color(np.array([0, 0, 1]))
-                # goal_geometry.points = o3d.utility.Vector3dVector(ground_truth_subarray[0][:200])
+                # goal_geometry.points = o3d.utility.Vector3dVector(tax3d_subarray[0])
                 # goal_geometry.paint_uniform_color(np.array([1, 0, 0]))
                 # anchor_geometry.points = o3d.utility.Vector3dVector(anchor_pcd_arrays_sub_list[0])
                 # anchor_geometry.paint_uniform_color(np.array([0, 1, 0]))

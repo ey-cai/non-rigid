@@ -983,7 +983,7 @@ class DeformEnvTAX3D(gym.Env):
         transform = np.array([
             np.random.uniform() * 5 * np.power(-1, z_rot < 0),
             np.random.uniform() * -10,
-            0.0
+            np.random.uniform(0, 3)  # 0.0
         ])
         return rot, transform
     
