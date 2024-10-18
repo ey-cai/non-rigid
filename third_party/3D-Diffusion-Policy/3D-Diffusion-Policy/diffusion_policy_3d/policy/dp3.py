@@ -192,10 +192,13 @@ class DP3(BasePolicy):
         # nobs = self.normalizer.normalize(obs_dict)
 
         nobs = obs_dict
-        point_cloud_mean = nobs['point_cloud'][:, :, :1160, :].mean(dim=[0, 1, 2], keepdim=True) # Centroid of cloth and anchor
+        point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of entire scene
         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        point_cloud_mean = point_cloud_mean.squeeze(0)
+        nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
+        nobs['agent_pos'][..., 6:9] = nobs['agent_pos'][..., 6:9] - point_cloud_mean
         nobs = {key: tensor.float() for key, tensor in nobs.items()}
-        
+
         if not self.use_pc_color:
             nobs['point_cloud'] = nobs['point_cloud'][..., :3]
         this_n_point_cloud = nobs['point_cloud']
@@ -275,10 +278,9 @@ class DP3(BasePolicy):
         
         # Center point cloud
         nobs = batch['obs']
-        point_cloud_mean = nobs['point_cloud'][:, :, :1160, :].mean(dim=[0, 1, 2], keepdim=True)
+        point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True)
         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
         nobs = {key: tensor.float() for key, tensor in nobs.items()}
-
         nactions = self.normalizer['action'].normalize(batch['action'])
 
         if not self.use_pc_color:

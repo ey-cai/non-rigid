@@ -196,6 +196,8 @@ class DedoRunner(BaseRunner):
             rot = demo['rot']
             trans = demo['trans']
             deform_params = demo['deform_params'][()]
+            goal_pc = demo['action_pc'] + demo['flow']
+            goal_pc = torch.from_numpy(goal_pc).to(device=device)
 
             obs = env.reset(
                 rigid_rot=rot,
@@ -228,7 +230,17 @@ class DedoRunner(BaseRunner):
                     else:
                         obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
                         obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
+                        
+                        bsz = obs_dict_input['point_cloud'].shape[0]
+                        hor = obs_dict_input['point_cloud'].shape[1]
+                        goal_pointcloud = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)
+                        
+                        obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],
+                                                                   goal_pointcloud], dim=-2)
+                        
                         action_dict = policy.predict_action(obs_dict_input)
+                        
+
 
                 # device transfer
                 np_action_dict = dict_apply(action_dict,
