@@ -145,7 +145,10 @@ class DedoEnv:
             }
         else:
             # action_pcd = downsample_with_fps(action_pcd, int(self.num_points / 2))
-            anchor_pcd = downsample_with_fps(anchor_pcd, 580)
+            pad = np.zeros((625 - action_pcd.shape[0], 3))
+            pad[:, :3] = action_pcd[0]
+            action_pcd = np.concatenate([action_pcd, pad], axis=0)
+            anchor_pcd = downsample_with_fps(anchor_pcd, 625)
             point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
             obs_dict = {
                 'point_cloud': point_cloud,

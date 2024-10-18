@@ -701,7 +701,7 @@ class TAX3DEncoder(nn.Module):
                 'self_attn_layers': self_attn_layers,
                 'goal_attn_layers': goal_attn_layers,
                 'goal_self_attn_layers': goal_self_attn_layers,
-                'final_layer': nn.Linear(580*encoder_output_dim, encoder_output_dim),
+                'final_layer': nn.Linear(625*encoder_output_dim, encoder_output_dim),
             })
             # self.n_output_channels *= 580
         
@@ -728,11 +728,12 @@ class TAX3DEncoder(nn.Module):
 
     def forward(self, observations: Dict) -> torch.Tensor:
         points = observations[self.point_cloud_key]
-        action_pcd = points[:, :580, :]
-        anchor_pcd = points[:, 580:580*2, :]
+        num_point_each = 625
+        action_pcd = points[:, :num_point_each, :]
+        anchor_pcd = points[:, num_point_each:num_point_each*2, :]
 
         if self.use_goal_pc:
-            goal_pcd = points[:, 580*2:, :]
+            goal_pcd = points[:, num_point_each*2:, :]
 
         n_action_pcd = action_pcd.shape[1]
         n_anchor_pcd = anchor_pcd.shape[1]
@@ -781,9 +782,9 @@ class TAX3DEncoder(nn.Module):
                 # import matplotlib.pyplot as plt
                 # fig = plt.figure(figsize=(10, 7))
                 # ax = fig.add_subplot(111, projection='3d')
-                # ax.scatter(points[0, :580, 0].cpu().numpy(), points[0, :580, 1].cpu().numpy(), points[0, :580, 2].cpu().numpy(), c='blue', label='Action Point Cloud')
-                # ax.scatter(points[0, 2*580:, 0].cpu().numpy(), points[0, 2*580:, 1].cpu().numpy(), points[0, 2*580:, 2].cpu().numpy(), c='red', label='Goal Point Cloud')
-                # for i in range(580):
+                # ax.scatter(points[0, :num_point_each, 0].cpu().numpy(), points[0, :num_point_each, 1].cpu().numpy(), points[0, :num_point_each, 2].cpu().numpy(), c='blue', label='Action Point Cloud')
+                # ax.scatter(points[0, 2*num_point_each:, 0].cpu().numpy(), points[0, 2*num_point_each:, 1].cpu().numpy(), points[0, 2*num_point_each:, 2].cpu().numpy(), c='red', label='Goal Point Cloud')
+                # for i in range(num_point_each):
                 #     ax.quiver(points[0, i, 0].cpu().numpy(), points[0, i, 1].cpu().numpy(), points[0, i, 2].cpu().numpy(),
                 #             flow_action[0, i, 0].cpu().numpy(), flow_action[0, i, 1].cpu().numpy(), flow_action[0, i, 2].cpu().numpy(),
                 #             color='green', arrow_length_ratio=0.1)
@@ -808,28 +809,28 @@ class TAX3DEncoder(nn.Module):
 
             # cross attention between action pcd and anchor pcd
             attn_output = self.nets['attn_layers'](
-                query=rgb_features[:580], value=rgb_features[580:1160],
-                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, 580:1160],
+                query=rgb_features[:num_point_each], value=rgb_features[num_point_each:num_point_each*2],
+                query_pos=point_cloud_rel_pos_embedding[:, :num_point_each], value_pos=point_cloud_rel_pos_embedding[:, num_point_each:num_point_each*2],
             )[-1] # 580, 256, 64
 
             # self attention
             self_attn_output = self.nets['self_attn_layers'](
                 query=attn_output, value=attn_output,
-                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, :580],
+                query_pos=point_cloud_rel_pos_embedding[:, :num_point_each], value_pos=point_cloud_rel_pos_embedding[:, :num_point_each],
             )[-1] # 580, 256, 64
             # new_rgb_features = einops.rearrange(
             #     self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # 256, 37120
             
             # cross attention between action pcd and goal pcd
             goal_attn_output = self.nets['goal_attn_layers'](
-                query=self_attn_output, value=rgb_features[1160:],
-                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, 1160:],
+                query=self_attn_output, value=rgb_features[num_point_each*2:],
+                query_pos=point_cloud_rel_pos_embedding[:, :num_point_each], value_pos=point_cloud_rel_pos_embedding[:, num_point_each*2:],
             )[-1] # 580, 256, 64
 
             # self attention
             goal_self_attn_output = self.nets['goal_self_attn_layers'](
                 query=goal_attn_output, value=goal_attn_output,
-                query_pos=point_cloud_rel_pos_embedding[:, :580], value_pos=point_cloud_rel_pos_embedding[:, :580],
+                query_pos=point_cloud_rel_pos_embedding[:, :num_point_each], value_pos=point_cloud_rel_pos_embedding[:, :num_point_each],
             )[-1] # 580, 256, 64
             pn_feat = einops.rearrange(
                 goal_self_attn_output, "num_gripper_points B embed_dim -> B num_gripper_points embed_dim").flatten(start_dim=1) # 256, 37120

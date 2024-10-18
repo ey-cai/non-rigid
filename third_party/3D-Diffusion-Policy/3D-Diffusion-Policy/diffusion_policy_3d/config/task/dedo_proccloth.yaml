@@ -41,7 +41,7 @@ dataset:
   # root_dir: ~/Documents/data
   # root_dir: ~/Documents/data/tax3d
 
-  cloth_geometry: single
+  cloth_geometry: multi
   cloth_pose: fixed
   anchor_geometry: single
   anchor_pose: random
