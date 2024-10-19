@@ -5,16 +5,30 @@ FROM nvidia/cuda:11.8.0-devel-ubuntu20.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install necessary dependencies
-RUN apt-get update && \
-    apt-get install -y curl git build-essential libssl-dev zlib1g-dev libbz2-dev \
-    git \
-    libreadline-dev libsqlite3-dev wget llvm libncurses5-dev libncursesw5-dev \
-    xz-utils tk-dev libffi-dev liblzma-dev python-openssl && \
-    apt-get clean && \
+RUN apt-get update &&
+    apt-get install -y \
+        curl \
+        git \
+        build-essential \
+        libssl-dev \
+        zlib1g-dev \
+        libbz2-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        wget \
+        llvm \
+        libncurses5-dev \
+        libncursesw5-dev \
+        xz-utils \
+        tk-dev \
+        libffi-dev \
+        liblzma-dev \
+        python-openssl &&
+    apt-get clean &&
     rm -rf /var/lib/apt/lists/*
 
 # Install pyenv
-ENV CODING_ROOT="/opt/eycai"
+ENV CODING_ROOT="/opt/rpad"
 
 WORKDIR $CODING_ROOT
 RUN git clone --depth=1 https://github.com/pyenv/pyenv.git .pyenv
@@ -65,11 +79,11 @@ COPY ./requirements-gpu.txt $CODING_ROOT/code/non-rigid/requirements-gpu.txt
 RUN pip install --no-cache-dir -r requirements-gpu.txt
 
 # Install third-party dependencies
-RUN cd third_party/dedo && \
-    pip install --no-cache-dir -e . &&  \
+RUN cd third_party/dedo &&
+    pip install --no-cache-dir -e . &&
     cd ../..
-RUN cd third_party/3D-Diffusion-Policy/3D-Diffusion-Policy && \
-    pip install --no-cache-dir -e . && \
+RUN cd third_party/3D-Diffusion-Policy/3D-Diffusion-Policy &&
+    pip install --no-cache-dir -e . &&
     cd ../../..
 
 # Install the non-rigid package
