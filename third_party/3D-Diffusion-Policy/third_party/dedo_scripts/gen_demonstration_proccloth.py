@@ -1,18 +1,16 @@
-import os
-import numpy as np
-
 import argparse
+import os
+
 import gym
-import torch
+import numpy as np
 import pytorch3d.ops as torch3d_ops
-from tqdm import tqdm
+import torch
 import zarr
-from termcolor import cprint
-
-from dedo.utils.args import get_args, args_postprocess, CAM_CONFIG_DIR
 from dedo.envs import DeformEnvTAX3D
-
+from dedo.utils.args import CAM_CONFIG_DIR, args_postprocess, get_args
 from PIL import Image
+from termcolor import cprint
+from tqdm import tqdm
 
 
 def parse_args():
@@ -123,7 +121,7 @@ if __name__ == '__main__':
     dedo_args.pcd = True
     dedo_args.logdir = 'rendered'
     dedo_args.cam_config_path = f'{CAM_CONFIG_DIR}/camview_0.json'
-    dedo_args.viz = True
+    dedo_args.viz = False
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)
 
@@ -142,7 +140,19 @@ if __name__ == '__main__':
         raise ValueError(f'num_episodes ({num_episodes}) must be divisible by num_holes ({num_holes})')
 
     kwargs = {'args': dedo_args}
+
+    import pkgutil
+
+    import pybullet
+
     env = gym.make(dedo_args.env, **kwargs)
+
+    egl = pkgutil.get_loader('eglRenderer')
+    if (egl):
+        pluginId = pybullet.loadPlugin(egl.get_filename(), "_eglRendererPlugin", physicsClientId=env.sim._client)
+    else:
+        pluginId = pybullet.loadPlugin("eglRendererPlugin", physicsClientId=env.sim._client)
+    print("pluginId=",pluginId)
 
 
     # settings seed based on split
