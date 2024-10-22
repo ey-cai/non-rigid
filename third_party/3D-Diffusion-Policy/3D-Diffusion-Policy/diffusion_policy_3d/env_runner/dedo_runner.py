@@ -264,6 +264,8 @@ class DedoRunner(BaseRunner):
                     vid_frames_list[0].save(vid_save_path, save_all=True,
                                             append_images=vid_frames_list[self.vid_speed::self.vid_speed], 
                                             duration=33, loop=0)
+                    # saving first frame
+                    vid_frames_list[0].save(os.path.join(output_save_dir, f'{id}_{vid_tag}_first_frame.png'))
                     # saving last frame
                     vid_frames_list[-1].save(os.path.join(output_save_dir, f'{id}_{vid_tag}_last_frame.png'))
                     # saving pre-release frame

@@ -1,4 +1,4 @@
-from dedo.utils.args import get_args, args_postprocess
+from dedo.utils.args import get_args, args_postprocess, CAM_CONFIG_DIR
 from dedo.utils.pcd_utils import visualize_data, render_video
 from dedo.envs import DeformEnvTAX3D
 
@@ -164,62 +164,3 @@ class DedoEnv:
     
     def render(self, mode='rgb_array', width=300, height=300):
         return self.env.render(mode=mode, width=width, height=height)
-    
-
-# add a main function just to debug for now
-if __name__ == '__main__':
-    args = get_args()
-    args.env = 'HangProcCloth-v0'
-    args.tax3d = True
-    args.pcd = True
-    args.logdir = 'rendered'
-    args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
-    args_postprocess(args)
-
-    num_holes = 1
-    deform_params = { # for single-cloth datasets
-        'num_holes': num_holes,
-        'node_density': 25,
-        'w': 1.0,
-        'h': 1.0,
-        'holes': [{'x0': 8, 'x1': 16, 'y0': 9, 'y1': 13}]
-    }
-
-    kwargs = {'args': args}
-    env = DedoEnv(args)
-    env.seed()
-
-    # reset
-    obs = env.reset(deform_params=deform_params)
-    # get action
-    act = env.env.pseudo_expert_action(0)
-    step = 0
-    # rollout
-    traj = []
-    while True:
-        assert (not isinstance(env.env.action_space, gym.spaces.Discrete))
-        next_obs, rwd, done, info = env.step(act, 'force')
-        traj.append(obs) # just obs for now, for debugging
-        if done:
-            break
-        obs = next_obs
-        step += 1
-
-    # for o in traj:
-    #     print(o['action_pcd'].shape, o['anchor_pcd'].shape, o['action_n'], o['anchor_n'])
-    
-    for i in range(0, len(traj), 20):
-        obs_i = traj[i]
-        obs_i = env.filter_obs(obs_i)
-        action_pcd = obs_i['action_pcd']
-        anchor_pcd = obs_i['anchor_pcd']
-        action_seg = np.ones(action_pcd.shape[0])
-        anchor_seg = np.zeros(anchor_pcd.shape[0])
-        fig = vpl.segmentation_fig(
-            np.concatenate([action_pcd, anchor_pcd], axis=0),
-            np.concatenate([action_seg, anchor_seg], axis=0).astype(np.int32)
-        )
-        fig.show()
-        # visualizer.visualize_pointcloud(
-        #     np.concatenate([action_pcd, anchor_pcd], axis=0)
-        # )

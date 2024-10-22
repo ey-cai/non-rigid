@@ -156,6 +156,9 @@ def load_checkpoint_config_from_wandb(current_cfg, task_overrides, entity, proje
     inconsistent_keys = []
     for ovrd in task_overrides:
         key = ovrd.split("=")[0]
+        # hack to skip data_dir overrides
+        if "data_dir" in key:
+            continue
         # only check for consistency with dataset/model keys
         if key.split(".")[0] not in ["dataset", "model"]:
             continue
@@ -166,6 +169,9 @@ def load_checkpoint_config_from_wandb(current_cfg, task_overrides, entity, proje
     if inconsistent_keys:
         raise ValueError(f"Task overrides are inconsistent with original run config: {inconsistent_keys}")
     
+    # hack to keep data_dir override
+    current_data_dir = current_cfg.dataset.data_dir
+
     # update run config with dataset and model configs from original run config
     OmegaConf.update(current_cfg, "dataset", OmegaConf.select(run_cfg, "dataset"), merge=True, force_add=True)
     OmegaConf.update(current_cfg, "model", OmegaConf.select(run_cfg, "model"), merge=True, force_add=True)
@@ -174,6 +180,7 @@ def load_checkpoint_config_from_wandb(current_cfg, task_overrides, entity, proje
     if current_cfg.mode == "eval":
         current_cfg.dataset.train_size = None
         current_cfg.dataset.val_size = None
+    current_cfg.dataset.data_dir = current_data_dir
     return current_cfg
 
 # This matching function

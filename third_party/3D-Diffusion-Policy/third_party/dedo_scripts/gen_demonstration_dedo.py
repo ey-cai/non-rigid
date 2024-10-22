@@ -9,7 +9,7 @@ from tqdm import tqdm
 import zarr
 from termcolor import cprint
 
-from dedo.utils.args import get_args, args_postprocess
+from dedo.utils.args import get_args, args_postprocess, CAM_CONFIG_DIR
 from dedo.envs import DeformEnvTAX3D
 
 from PIL import Image

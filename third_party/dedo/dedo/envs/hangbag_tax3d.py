@@ -42,6 +42,8 @@ from shapely.geometry.polygon import Polygon
 import plotly.graph_objects as go
 from PIL import Image
 import copy
+import pkgutil
+import pybullet_data
 
 def order_loop_vertices(vertices):
     """ Order the vertices of a loop in a clockwise manner. """
@@ -100,11 +102,21 @@ class HangBagTAX3D(gym.Env):
         #     self.scene_name = 'dress'  # same human figure for dress and mask tasks
 
         # Initialize sim and load objects.
-        self.sim = bclient.BulletClient(
-            connection_mode=pybullet.GUI if args.viz else pybullet.DIRECT)
+        # self.sim = bclient.BulletClient(
+        #     connection_mode=pybullet.GUI if args.viz else pybullet.DIRECT)
+        self.sim = bclient.BulletClient(connection_mode=pybullet.DIRECT)
         if self.args.viz:  # no rendering during load
             self.sim.configureDebugVisualizer(pybullet.COV_ENABLE_RENDERING, 0)
 
+        # use egl for rendering
+        self.sim.setAdditionalSearchPath(pybullet_data.getDataPath())
+        egl = pkgutil.get_loader('eglRenderer')
+        if (egl):
+            pluginId = self.sim.loadPlugin(egl.get_filename(), '_eglRendererPlugin')
+        else:
+            pluginId = self.sim.loadPlugin('eglRendererPlugin')
+        print('pluginId=', pluginId)
+         
         reset_bullet(self.args, self.sim, debug=args.debug)
 
         # reset_bullet(args, self.sim, debug=args.debug)

@@ -15,6 +15,9 @@ import sys
 from .task_info import TASK_INFO
 import re
 import os
+import pathlib
+
+CAM_CONFIG_DIR = str(pathlib.Path(__file__).parent.joinpath('cam_configs').resolve())
 
 def get_args_parser():
     parser = argparse.ArgumentParser(description='args', add_help=True)

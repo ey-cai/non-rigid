@@ -29,6 +29,7 @@ checkpoint:
   artifact_dir: data/wandb_artifacts
 
 inference:
+  override_dataset: False
   batch_size: 16
   val_batch_size: 4
   sample_size: None # Set by the training loop, from dataset config.

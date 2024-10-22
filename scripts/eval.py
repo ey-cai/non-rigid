@@ -57,6 +57,14 @@ def visualize_batched_point_clouds(point_clouds):
 @torch.no_grad()
 @hydra.main(config_path="../configs", config_name="eval", version_base="1.3")
 def main(cfg):
+    task_overrides = HydraConfig.get().overrides.task
+    cfg = load_checkpoint_config_from_wandb(
+        cfg, 
+        task_overrides, 
+        cfg.wandb.entity, 
+        cfg.wandb.project, 
+        cfg.checkpoint.run_id
+    )
     print(
         json.dumps(
             omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=False),
@@ -64,8 +72,6 @@ def main(cfg):
             indent=4,
         )
     )
-    task_overrides = HydraConfig.get().overrides.task
-    cfg = load_checkpoint_config_from_wandb(cfg, task_overrides, cfg.wandb.entity, cfg.wandb.project, cfg.checkpoint.run_id)
     ######################################################################
     # Torch settings.
     ######################################################################

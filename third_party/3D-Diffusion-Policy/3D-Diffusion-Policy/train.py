@@ -434,18 +434,6 @@ class TrainDP3Workspace:
         policy.eval()
         policy.cuda()
 
-
-
-        # cprint(f"EVALUATING ON SETTING: {dataset_name}", 'magenta')
-
-        # runner_log = env_runner.run_dataset(policy, dataset, split)
-
-        # cprint(f"---------------- Eval Results for {split} --------------", 'magenta')
-        # for key, value in runner_log.items():
-        #     if isinstance(value, float):
-        #         cprint(f"{key}: {value:.4f}", 'magenta')
-        
-
         runner_log = env_runner.run_dataset(policy, train_dataset, 'train')
 
         cprint(f"---------------- Eval Results for Train --------------", 'magenta')
@@ -615,20 +603,13 @@ class EvalTAX3DWorkspace:
         np.random.seed(seed)
         random.seed(seed)
 
-        # configure model
-        # TODO: implement TAX3D
-        #self.model: TAX3D = hydra.utils.instantiate(cfg.policy)
-
         # don't need to worry about ema, optimizer, global step, or epoch
-
-
         checkpoint_run_id = cfg.exp_name.split("-")[-1]
         project_dir = f"{cfg.logging.entity}/{cfg.logging.project}"
         # grabbing config from wandb
         api = wandb.Api()
         run_config = api.run(f"{project_dir}/{checkpoint_run_id}").config
         self.run_config = OmegaConf.create(run_config)
-
 
         # grabbing checkpoint reference from exp_name
         checkpoint_reference = f"{project_dir}/model-{checkpoint_run_id}:v0"
@@ -638,24 +619,30 @@ class EvalTAX3DWorkspace:
         self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_config)
 
     def eval_datasets(self):
+        # extract dataset params from training config
+        cloth_geometry = self.run_config.dataset.cloth_geometry
+        cloth_pose = self.run_config.dataset.cloth_pose
+        anchor_geometry = self.run_config.dataset.anchor_geometry
+        anchor_pose = self.run_config.dataset.anchor_pose
+        hole = self.run_config.dataset.hole
+        dataset_dir = self.run_config.dataset.data_dir
 
+        if self.cfg.inference.override_dataset:
+            cprint(f"Overriding dataset params from task config.", 'red')
+            cloth_geometry = self.cfg.task.dataset.cloth_geometry
+            cloth_pose = self.cfg.task.dataset.cloth_pose
+            anchor_geometry = self.cfg.task.dataset.anchor_geometry
+            anchor_pose = self.cfg.task.dataset.anchor_pose
+            hole = self.cfg.task.dataset.hole
+            dataset_dir = self.cfg.task.dataset.root_dir
 
-        # TODO: OVERRIDE THESE VALUES BASED ON THE RUN CONFIG - MODEL SHOULD ALWAYS 
-        # EVALUATE ON THE DATASET TYPE THAT IT WAS TRAINED ON
-
-        dataset_cfg = self.cfg.task.dataset
-        cloth_geometry = dataset_cfg.cloth_geometry
-        cloth_pose = dataset_cfg.cloth_pose
-        anchor_geometry = dataset_cfg.anchor_geometry
-        anchor_pose = dataset_cfg.anchor_pose
-        hole = dataset_cfg.hole
         dataset_name = (
             f'cloth={cloth_geometry}-{cloth_pose} ' + \
             f'anchor={anchor_geometry}-{anchor_pose} ' + \
             f'hole={hole}'
         )
         dataset_dir = os.path.join(
-            os.path.expanduser(dataset_cfg.root_dir),
+            os.path.expanduser(dataset_dir),
             dataset_name
         )
 
@@ -699,19 +686,6 @@ class EvalTAX3DWorkspace:
         policy.eval()
         policy.cuda()
 
-        # cprint(f"EVALUATING ON SETTING: {dataset_name}", 'magenta')
-
-        # runner_log = env_runner.run_dataset(policy, dataset, split)
-
-        # cprint(f"---------------- Eval Results for {split} --------------", 'magenta')
-        # for key, value in runner_log.items():
-        #     if isinstance(value, float):
-        #         cprint(f"{key}: {value:.4f}", 'magenta')
-
-
-
-
-
         runner_log = env_runner.run_dataset(policy, train_dataset, 'train')
 
         cprint(f"---------------- Eval Results for Train --------------", 'magenta')
@@ -754,4 +728,8 @@ def main(cfg):
     workspace.run()
 
 if __name__ == "__main__":
+    # hydra shenanigans - expand user and override run_dir before hydra creates the log directory
+    run_dir_idx = [i for i, arg in enumerate(sys.argv) if arg.startswith("hydra.run.dir=")]
+    for idx in run_dir_idx:
+        sys.argv[idx] = sys.argv[idx].replace("~", os.path.expanduser("~"))
     main()
