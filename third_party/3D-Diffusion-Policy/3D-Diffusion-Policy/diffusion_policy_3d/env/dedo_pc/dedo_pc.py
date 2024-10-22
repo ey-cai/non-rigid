@@ -143,11 +143,13 @@ class DedoEnv:
                 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
-            anchor_pcd = downsample_with_fps(anchor_pcd, 580)
-            point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
+            # Single cloth
+            # anchor_pcd = downsample_with_fps(anchor_pcd, 580)
+            # point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
 
-            # if point_cloud.shape[0] > self.num_points:
-            #     point_cloud = downsample_with_fps(point_cloud, self.num_points)
+            # Multi cloth
+            anchor_pcd = downsample_with_fps(anchor_pcd, 625)
+            point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
             obs_dict = {
                 'point_cloud': point_cloud,
                 'agent_pos': obs['gripper_state'],

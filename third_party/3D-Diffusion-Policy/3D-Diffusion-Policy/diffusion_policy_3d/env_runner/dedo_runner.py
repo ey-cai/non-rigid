@@ -234,10 +234,13 @@ class DedoRunner(BaseRunner):
                         bsz = obs_dict_input['point_cloud'].shape[0]
                         hor = obs_dict_input['point_cloud'].shape[1]
                         goal_pointcloud = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)
-                        
+                        # obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],
+                        #                                            goal_pointcloud,], dim=-2)
+
                         obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],
-                                                                   goal_pointcloud], dim=-2)
+                                                                   goal_pointcloud, np.zeros((obs_dict_input['point_cloud'].shape[0], 1875 - obs_dict_input['point_cloud'].shape[1], obs_dict_input['point_cloud'].shape[2]))], dim=-2)
                         
+                        # print(obs_dict_input['point_cloud'].shape)
                         action_dict = policy.predict_action(obs_dict_input)
                         
 

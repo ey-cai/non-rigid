@@ -13,7 +13,6 @@ from pytorch3d.transforms import (
     Rotate,
     axis_angle_to_matrix,
 )
-
 import os
 
 def random_so2(N=1):
@@ -40,6 +39,7 @@ class DedoDataset(BaseDataset):
             anchor_geometry='single',
             anchor_pose='random',
             hole='single',
+            goal_conditioning='ground_truth'
             ):
         super().__init__()
         self.root_dir = root_dir
@@ -51,6 +51,7 @@ class DedoDataset(BaseDataset):
         self.anchor_geometry = anchor_geometry
         self.anchor_pose = anchor_pose
         self.hole = hole
+        self.goal_conditioning = goal_conditioning
 
 
         if self.random_augment:
@@ -70,7 +71,7 @@ class DedoDataset(BaseDataset):
         # Pointclooud includes action, anchor, and ground truth
         # Action is a force vector
         self.replay_buffer = ReplayBuffer.copy_from_path(
-            train_zarr_path, keys=['point_cloud', 'state', 'action'])
+            train_zarr_path, keys=['point_cloud', 'state', 'action']) #, 'action_pcd', 'anchor_pcd', 'cloth', 'ground_truth'
         
         train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.sampler = SequenceSampler(
@@ -113,7 +114,7 @@ class DedoDataset(BaseDataset):
         val_set = copy.copy(self)
         val_zarr_path = os.path.join(self.zarr_dir, 'val.zarr')
         val_set.replay_buffer = ReplayBuffer.copy_from_path(
-            val_zarr_path, keys=['point_cloud', 'state', 'action'])
+            val_zarr_path, keys=['point_cloud', 'state', 'action']) # 'action_pcd', 'anchor_pcd', 'cloth', 'ground_truth'
         val_mask = np.ones(val_set.replay_buffer.n_episodes, dtype=bool)
         val_set.sampler = SequenceSampler(
             replay_buffer=val_set.replay_buffer,
@@ -155,12 +156,20 @@ class DedoDataset(BaseDataset):
         # TODO: might have to convert action and anchor pcds into a single point cloud here
         agent_pos = sample['state'].astype(np.float32)
         action = sample['action'].astype(np.float32)
-        point_cloud = sample['point_cloud'].astype(np.float32)
-        
+        point_cloud = sample['point_cloud'].astype(np.float32)  # [:, :1160, :]
+        # cloth = sample['cloth'].astype(np.int16)
+        # action_pcd = sample['action_pcd'].astype(np.float32)
+        # anchor_pcd = sample['anchor_pcd'].astype(np.float32)
+        # ground_truth = sample['ground_truth'].astype(np.float32)
+
         data = {
             'obs': {
                 'point_cloud': point_cloud, # T, 1024, 3, no rgb
                 'agent_pos': agent_pos, # T, D_pos
+                # 'action_pcd': action_pcd, # T, 580, 3
+                # 'anchor_pcd': anchor_pcd, # T, 580, 3
+                # 'cloth' : cloth,
+                # 'ground_truth' : ground_truth,
             },
             'action': action, # T, D_action
         }
@@ -175,11 +184,30 @@ class DedoDataset(BaseDataset):
         if self.random_augment:
             # sample transform and compute mean across all timesteps
             T = random_so2()
-            point_cloud = torch_data['obs']['point_cloud'] # includes action, achor, and ground truth
-            agent_pos = torch_data['obs']['agent_pos']
-            action = torch_data['action']
+            if self.cloth_geometry == 'multi':
+                cloth_size = torch_data['obs']['cloth'][0].item() # cloths across horizon should always be the same size
+                action_pcd = torch_data['obs']['action_pcd'][:, :cloth_size, :]
+                anchor_pcd = torch_data['obs']['anchor_pcd']
+                ground_truth = torch_data['obs']['ground_truth']
 
+                if self.goal_conditioning == 'ground_truth':
+                    point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=1) # includes action, achor, and ground truth
+
+                elif self.goal_conditioning == 'none':
+                    point_cloud = torch.cat([action_pcd, anchor_pcd], dim=1)
+
+            elif self.cloth_geometry == 'single':
+                if self.goal_conditioning == 'ground_truth':
+                    point_cloud = torch_data['obs']['point_cloud']
+
+                elif self.goal_conditioning == 'none':
+                    point_cloud = torch_data['obs']['point_cloud'][:, :1160, :]
+
+            agent_pos = torch_data['obs']['agent_pos']
+            
+            action = torch_data['action']
             point_cloud_mean = point_cloud.mean(dim=[0, 1], keepdim=True)
+
             # transform point cloud
             point_cloud = T.transform_points(point_cloud - point_cloud_mean) # + point_cloud_mean
 
@@ -194,7 +222,18 @@ class DedoDataset(BaseDataset):
             action[:, 3:6] = T.transform_points(action[:, 3:6])
 
             # update torch data
-            torch_data['obs']['point_cloud'] = point_cloud
+            if self.cloth_geometry == 'single':
+                torch_data['obs']['point_cloud'] = point_cloud
+                
+            elif self.cloth_geometry == 'multi':
+                if self.goal_conditioning == 'ground_truth':
+                    torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
+                                                        np.zeros((point_cloud.shape[0], 1875 - point_cloud.shape[1], point_cloud.shape[2]))), 
+                                                        axis=1)
+                if self.goal_conditioning == 'none':
+                    torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
+                                                        np.zeros((point_cloud.shape[0], 1250 - point_cloud.shape[1], point_cloud.shape[2]))), 
+                                                        axis=1)
             torch_data['obs']['agent_pos'] = agent_pos
             torch_data['action'] = action
         return torch_data

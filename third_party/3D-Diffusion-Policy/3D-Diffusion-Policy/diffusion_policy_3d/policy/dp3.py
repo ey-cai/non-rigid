@@ -194,7 +194,7 @@ class DP3(BasePolicy):
         nobs = obs_dict
         point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of entire scene
         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
-        point_cloud_mean = point_cloud_mean.squeeze(0)
+        point_cloud_mean = point_cloud_mean.squeeze(2)
         nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
         nobs['agent_pos'][..., 6:9] = nobs['agent_pos'][..., 6:9] - point_cloud_mean
         nobs = {key: tensor.float() for key, tensor in nobs.items()}

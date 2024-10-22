@@ -25,11 +25,11 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='data', help='directory to save data')
-    parser.add_argument('--num_episodes', type=int, default=64, help='number of episodes to run')
+    parser.add_argument('--num_episodes', type=int, default=40, help='number of episodes to run')
     parser.add_argument('--action_num_points', type=int, default=625, help='number of points in action point cloud')
     parser.add_argument('--anchor_num_points', type=int, default=625, help='number of points in anchor point cloud')
     # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
-    parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
+    parser.add_argument('--split', type=str, default='val', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
     parser.add_argument('--random_cloth_pose', action='store_true', help='randomize cloth pose')

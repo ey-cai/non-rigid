@@ -583,11 +583,9 @@ class TAX3DEncoder(nn.Module):
         else:
             self.imagination_shape = None
             
-        
-        
-        cprint(f"[DP3Encoder] point cloud shape: {self.point_cloud_shape}", "yellow")
-        cprint(f"[DP3Encoder] state shape: {self.state_shape}", "yellow")
-        cprint(f"[DP3Encoder] imagination point shape: {self.imagination_shape}", "yellow")
+        cprint(f"[Tax3DEncoder] point cloud shape: {self.point_cloud_shape}", "yellow")
+        cprint(f"[Tax3DEncoder] state shape: {self.state_shape}", "yellow")
+        cprint(f"[Tax3DEncoder] imagination point shape: {self.imagination_shape}", "yellow")
         
 
         self.use_pc_color = use_pc_color
@@ -642,7 +640,7 @@ class TAX3DEncoder(nn.Module):
         self.n_output_channels  += output_dim
         self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
 
-        cprint(f"[DP3Encoder] output dim: {self.n_output_channels}", "red")
+        cprint(f"[Tax3DEncoder] output dim: {self.n_output_channels}", "red")
 
 
     def forward(self, observations: Dict) -> torch.Tensor:
