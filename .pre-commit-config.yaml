@@ -5,16 +5,19 @@ repos:
     rev: v4.4.0
     hooks:
     -   id: trailing-whitespace
-        exclude: "tests/testdata/"
+        exclude: "(tests/testdata/|third_party/)"
     -   id: end-of-file-fixer
-        exclude: "tests/testdata/"
+        exclude: "(tests/testdata/|third_party/)"
     -   id: check-yaml
+        exclude: "third_party/"
     -   id: check-added-large-files
         args: ['--maxkb=5000']
+        exclude: "third_party/"
 -   repo: https://github.com/kynan/nbstripout
     rev: 0.6.0
     hooks:
     -   id: nbstripout
+        exclude: "third_party/"
 -   repo: https://github.com/myint/autoflake
     rev: v2.1.1
     hooks:
@@ -22,11 +25,14 @@ repos:
         args:
         -   --in-place
         -   --remove-all-unused-imports
+        exclude: "third_party/"
 -   repo: https://github.com/timothycrosley/isort
     rev: 5.12.0
     hooks:
-        - id: isort
+    -   id: isort
+        exclude: "third_party/"
 -   repo: https://github.com/psf/black
     rev: 23.3.0
     hooks:
     -   id: black
+        exclude: "third_party/"

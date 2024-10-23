@@ -141,20 +141,19 @@ if __name__ == '__main__':
 
     kwargs = {'args': dedo_args}
 
-    import pkgutil
+    env: DeformEnvTAX3D = gym.make(dedo_args.env, **kwargs)
 
-    import pybullet
+    # UGH EGL not working inside singularity :(
+    # import pkgutil
 
-    env = gym.make(dedo_args.env, **kwargs)
+    # import pybullet
 
-    egl = pkgutil.get_loader('eglRenderer')
-    if (egl):
-        pluginId = pybullet.loadPlugin(egl.get_filename(), "_eglRendererPlugin", physicsClientId=env.sim._client)
-    else:
-        pluginId = pybullet.loadPlugin("eglRendererPlugin", physicsClientId=env.sim._client)
-    print("pluginId=",pluginId)
-
-
+    # egl = pkgutil.get_loader('eglRenderer')
+    # if (egl):
+    #     pluginId = pybullet.loadPlugin(egl.get_filename(), "_eglRendererPlugin", physicsClientId=env.sim._client)
+    # else:
+    #     pluginId = pybullet.loadPlugin("eglRendererPlugin", physicsClientId=env.sim._client)
+    # print("pluginId=",pluginId)
     # settings seed based on split
     if split == 'train':
         seed = 0
@@ -163,7 +162,6 @@ if __name__ == '__main__':
     elif split == 'val_ood':
         seed = 20
     env.seed(seed)
-
 
     ###############################
     # run episodes
@@ -193,7 +191,8 @@ if __name__ == '__main__':
                 if num_holes == 1:
                     holes = [
                         # {'x0': 9, 'x1': 13, 'y0': 11, 'y1': 14}
-                        {'x0': 8, 'x1': 16, 'y0': 9, 'y1': 13}
+                        {"x0": 8, "x1": 16, "y0": 11, "y1": 13}
+                        # {"x0": 10, "x1": 14, "y0": 11, "y1": 13}
                     ]
                 else:
                     holes = [
@@ -211,8 +210,12 @@ if __name__ == '__main__':
 
             # randomizing cloth pose
             if random_cloth_pose:
-                raise NotImplementedError("Need to implement random cloth pose")
-            
+                cloth_rot, cloth_position = env.random_cloth_transform()
+                cloth_rot = cloth_rot.as_euler("xyz")
+            else:
+                cloth_rot = None
+                cloth_position = None
+
             # randomizing cloth geometry
             if random_anchor_geometry:
                 raise NotImplementedError("Need to implement random anchor geometry")
@@ -230,7 +233,8 @@ if __name__ == '__main__':
                     rigid_rot, rigid_trans = env.random_anchor_transform()
                 rigid_rot = rigid_rot.as_euler('xyz')
             else:
-                raise ValueError("Only generating datasets for random anchor poses")
+                rigid_rot = None
+                rigid_trans = None
 
             action_pcd_arrays_sub_list = []
             anchor_pcd_arrays_sub_list = []
@@ -249,6 +253,8 @@ if __name__ == '__main__':
                 obs = env.reset(
                     rigid_rot=rigid_rot,
                     rigid_trans=rigid_trans,
+                    cloth_rot=cloth_rot,
+                    cloth_position=cloth_position,
                     deform_params=deform_params,
                     anchor_params=anchor_params,
                 )
@@ -279,7 +285,9 @@ if __name__ == '__main__':
                 # rollout the policy for this hole
                 while True:
                     # get action
-                    action = env.pseudo_expert_action(hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
+                    action = env.pseudo_expert_action(
+                        hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans, cloth_rot=cloth_rot, cloth_position=cloth_position
+                    )
                     total_count_sub += 1
 
                     # downsample point clouds for demos (not tax3d demos)
@@ -364,7 +372,6 @@ if __name__ == '__main__':
                 pbar.update(num_holes)
             else:
                 print("Failed on at least one hole, retrying...")
-
 
     ###############################
     # save data

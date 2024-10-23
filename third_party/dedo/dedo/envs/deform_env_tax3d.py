@@ -190,14 +190,21 @@ class DeformEnvTAX3D(gym.Env):
             file_path = os.path.join(parent, randfile)
         return file_path
 
-    def load_objects(self, sim, args, debug, 
-                     cloth_rot=None, 
-                     rigid_trans=None, rigid_rot=None, 
-                     deform_params={},
-                     anchor_params={
-                         'hanger_scale': 1.0,
-                         'tallrod_scale': 1.0,
-                     }):
+    def load_objects(
+        self,
+        sim,
+        args,
+        debug,
+        cloth_rot=None,
+        cloth_position=None,
+        rigid_trans=None,
+        rigid_rot=None,
+        deform_params={},
+        anchor_params={
+            "hanger_scale": 1.0,
+            "tallrod_scale": 1.0,
+        },
+    ):
         scene_name = self.args.task.lower()
         if scene_name in ['hanggarment', 'bgarments', 'sewing','hangproccloth']:
            scene_name = 'hangcloth'  # same hanger for garments and cloths
@@ -275,7 +282,6 @@ class DeformEnvTAX3D(gym.Env):
             else:
                 deform_obj = TASK_INFO[args.task][args.version - 1]
 
-
             preset_override_util(args, DEFORM_INFO[deform_obj])
         if deform_obj in DEFORM_INFO:
             preset_override_util(args, DEFORM_INFO[deform_obj])
@@ -311,21 +317,35 @@ class DeformEnvTAX3D(gym.Env):
 
             init_r = R.from_euler('xyz', args.deform_init_ori).as_matrix()
             rot_r = R.from_euler('xyz', cloth_rot).as_matrix()
-            cloth_position = args.deform_init_pos
+            # cloth_position = args.deform_init_pos
             cloth_orientation = R.from_matrix(rot_r @ init_r).as_euler('xyz')
 
         else:
-            cloth_position = args.deform_init_pos
+            # cloth_position = args.deform_init_pos
             cloth_orientation = args.deform_init_ori
 
+        if cloth_position is None:
+            cloth_position = args.deform_init_pos
+        else:
+            cloth_position = cloth_position + args.deform_init_pos
+
+        print(f"initial position: {cloth_position}")
 
         deform_id = load_deform_object(
-            sim, deform_obj, texture_path, args.deform_scale,
+            sim,
+            deform_obj,
+            texture_path,
+            args.deform_scale,
             # args.deform_init_pos, args.deform_init_ori,
-            cloth_position, cloth_orientation,
-            args.deform_bending_stiffness, args.deform_damping_stiffness,
-            args.deform_elastic_stiffness, args.deform_friction_coeff,
-            not args.disable_self_collision, debug)
+            cloth_position,
+            cloth_orientation,
+            args.deform_bending_stiffness,
+            args.deform_damping_stiffness,
+            args.deform_elastic_stiffness,
+            args.deform_friction_coeff,
+            not args.disable_self_collision,
+            debug,
+        )
         if scene_name == 'button':  # pin cloth edge for buttoning task
             assert ('deform_fixed_anchor_vertex_ids' in DEFORM_INFO[deform_obj])
             pin_fixed(sim, deform_id,
@@ -418,13 +438,18 @@ class DeformEnvTAX3D(gym.Env):
     def seed(self, seed):
         np.random.seed(seed)
 
-    def reset(self, cloth_rot=None, 
-              rigid_trans=None, rigid_rot=None, 
-              deform_params={},
-              anchor_params={
-                    'hanger_scale': 1.0,
-                    'tallrod_scale': 1.0,
-              }):
+    def reset(
+        self,
+        cloth_rot=None,
+        cloth_position=None,
+        rigid_trans=None,
+        rigid_rot=None,
+        deform_params={},
+        anchor_params={
+            "hanger_scale": 1.0,
+            "tallrod_scale": 1.0,
+        },
+    ):
         self.stepnum = 0
         self.anchor_pcd = None
         self.episode_reward = 0.0
@@ -446,13 +471,28 @@ class DeformEnvTAX3D(gym.Env):
         
         # FIXING THE PLANE TEXTURE FOR NOW
         plane_texture_path = os.path.join(
-            self.args.data_path,
-            'textures/plane/lightwood.jpg'
+            self.args.data_path, "textures/plane/lightwood.jpg"
         )
 
         reset_bullet(self.args, self.sim, plane_texture=plane_texture_path)
-        res = self.load_objects(self.sim, self.args, self.args.debug, cloth_rot, rigid_trans, rigid_rot, deform_params, anchor_params)
-        self.rigid_ids, self.deform_id, self.deform_obj, self.goal_pos, self.deform_params = res
+        res = self.load_objects(
+            self.sim,
+            self.args,
+            self.args.debug,
+            cloth_rot,
+            cloth_position,
+            rigid_trans,
+            rigid_rot,
+            deform_params,
+            anchor_params,
+        )
+        (
+            self.rigid_ids,
+            self.deform_id,
+            self.deform_obj,
+            self.goal_pos,
+            self.deform_params,
+        ) = res
         load_floor(self.sim, plane_texture=plane_texture_path, debug=self.args.debug)
 
         # Special case for Procedural Cloth tasks that can have two holes:
@@ -883,9 +923,11 @@ class DeformEnvTAX3D(gym.Env):
         assert (isinstance(rgba_px, np.ndarray)), 'Install numpy, then pybullet'
         img = rgba_px[:, :, 0:3]
         return img
-    
-    def pseudo_expert_action(self, hole_id, speed_factor=1.0, rigid_rot=None, rigid_trans=None):
-        """ Pseudo-expert action for demonstration generation. This is basic velocity control based on 
+
+    def pseudo_expert_action(
+        self, hole_id, speed_factor=1.0, rigid_rot=None, rigid_trans=None, cloth_rot=None, cloth_position=None
+    ):
+        """Pseudo-expert action for demonstration generation. This is basic velocity control based on
         vector from loop centroid to goal position."""
         # TODO: maybe switch entirely to position control for better demos, but this is low priority
         if self.target_action is not None:
@@ -900,6 +942,16 @@ class DeformEnvTAX3D(gym.Env):
             true_loop_vertices = self.args.deform_true_loop_vertices[hole_id]
             _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
             vertex_positions = np.array(vertex_positions)
+
+            # The vertices are after rotation/translation have been applied. We need to undo
+            # this before computing the goal poses.
+            if cloth_rot is not None:
+                R_cloth2default = R.from_euler("xyz", cloth_rot)
+                t_cloth2default = np.array(cloth_position)
+                vertex_positions = R_cloth2default.inv().apply(
+                    vertex_positions - t_cloth2default - self.args.deform_init_pos
+                ) + self.args.deform_init_pos
+
             centroid_points = vertex_positions[true_loop_vertices]
             centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
             centroid = centroid_points.mean(axis=0)
@@ -914,8 +966,16 @@ class DeformEnvTAX3D(gym.Env):
             flow = default_goal_pos - centroid
             flow += np.array([0, -1.5, 0]) # grippers should go slightly past anchor
             grip_obs = self.get_grip_obs()
-            a1_pos = grip_obs[0:3]
-            a2_pos = grip_obs[6:9]
+
+            # Also apply the cloth inverse to the grippers
+            if cloth_rot is not None:
+                R_cloth2default = R.from_euler("xyz", cloth_rot)
+                t_cloth2default = np.array(cloth_position)
+                a1_pos = R_cloth2default.inv().apply(grip_obs[0:3] - t_cloth2default - self.args.deform_init_pos) + self.args.deform_init_pos
+                a2_pos = R_cloth2default.inv().apply(grip_obs[6:9] - t_cloth2default - self.args.deform_init_pos) + self.args.deform_init_pos
+            else:
+                a1_pos = grip_obs[0:3]
+                a2_pos = grip_obs[6:9]
 
             if rigid_rot is not None:
                 # transforming default goal position
@@ -932,6 +992,10 @@ class DeformEnvTAX3D(gym.Env):
 
             action = np.concatenate([a1_act, a2_act], axis=0).astype(np.float32)
             self.target_action = action
+
+            # Pybullet debug visualization points for a1_act and a2_act.
+            self.sim.addUserDebugPoints([a1_act, a2_act], [[1, 0, 0], [0, 1, 0]], pointSize=10)
+
 
         # goal correction
         goal_pos = self.goal_pos[hole_id]
@@ -984,4 +1048,16 @@ class DeformEnvTAX3D(gym.Env):
             np.random.uniform() * -10,
             np.random.uniform(1, 5)
         ])
+        return rot, transform
+
+    def random_cloth_transform(self):
+        z_rot = np.random.uniform(-np.pi / 8, np.pi / 8)
+        rot = R.from_euler("z", z_rot)
+        transform = np.array(
+            [
+                np.random.uniform(-0.2, 0.2),
+                np.random.uniform(-0.2, 0.2),
+                np.random.uniform(-0.1, 0.1),
+            ]
+        )
         return rot, transform
