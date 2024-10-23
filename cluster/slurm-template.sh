@@ -31,7 +31,7 @@ module load singularity
 #############################################################
 
 dockerhub_username=beisner
-project_name=python_ml_project_template
+project_name=non_rigid
 scs_username=baeisner
 
 # Get the branch name.

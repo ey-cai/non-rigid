@@ -5,26 +5,26 @@ FROM nvidia/cuda:11.8.0-devel-ubuntu20.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install necessary dependencies
-RUN apt-get update &&
+RUN apt-get update && \
     apt-get install -y \
-        curl \
-        git \
-        build-essential \
-        libssl-dev \
-        zlib1g-dev \
-        libbz2-dev \
-        libreadline-dev \
-        libsqlite3-dev \
-        wget \
-        llvm \
-        libncurses5-dev \
-        libncursesw5-dev \
-        xz-utils \
-        tk-dev \
-        libffi-dev \
-        liblzma-dev \
-        python-openssl &&
-    apt-get clean &&
+    curl \
+    git \
+    build-essential \
+    libssl-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    wget \
+    llvm \
+    libncurses5-dev \
+    libncursesw5-dev \
+    xz-utils \
+    tk-dev \
+    libffi-dev \
+    liblzma-dev \
+    python-openssl && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Install pyenv
@@ -79,11 +79,12 @@ COPY ./requirements-gpu.txt $CODING_ROOT/code/non-rigid/requirements-gpu.txt
 RUN pip install --no-cache-dir -r requirements-gpu.txt
 
 # Install third-party dependencies
-RUN cd third_party/dedo &&
-    pip install --no-cache-dir -e . &&
+RUN cd third_party/dedo && \
+    pip install --no-cache-dir -e . && \
     cd ../..
-RUN cd third_party/3D-Diffusion-Policy/3D-Diffusion-Policy &&
-    pip install --no-cache-dir -e . &&
+
+RUN cd third_party/3D-Diffusion-Policy/3D-Diffusion-Policy && \
+    pip install --no-cache-dir -e . && \
     cd ../../..
 
 # Install the non-rigid package
@@ -100,6 +101,45 @@ RUN mkdir $CODING_ROOT/data
 
 # Make a logs directory.
 RUN mkdir $CODING_ROOT/logs
+
+# TODO: Probably delete this whole block, it's not necessary but EGL still broken on the cluster.
+RUN apt-get update && apt-get install -y \
+    # Dependencies required for python.
+    build-essential \
+    curl \
+    ffmpeg \
+    git \
+    libbz2-dev \
+    libffi-dev \
+    liblzma-dev \
+    libncursesw5-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    libreadline-dev \
+    libxml2-dev \
+    libxmlsec1-dev \
+    tk-dev \
+    xz-utils \
+    zlib1g-dev \
+    # VirtualGL Dependencies.
+    libc6 \
+    libglu1-mesa \
+    libglvnd-dev \
+    libxv1 \
+    mesa-utils \
+    openbox \
+    wget \
+    xvfb \
+    # CoppeliaSim Dependencies.
+    libglu1-mesa-dev \
+    '^libxcb.*-dev' \
+    libxi-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libxrender-dev \
+    libx11-xcb-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set up the entry point
 # CMD ["python", "-c", "import torch; print(torch.cuda.is_available())"]

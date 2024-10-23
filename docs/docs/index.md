@@ -1,4 +1,4 @@
-# python_ml_project_template
+# non_rigid
 
 Some sample text for the website.
 
