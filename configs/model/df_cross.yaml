@@ -7,6 +7,8 @@ in_channels: 3 # Number of input channels
 learn_sigma: True # Learn sigma for diffusion
 center_noise: False # Center noise for diffusion
 rotary: False # Use rotary embedding for diffusion
+rel_pose: False # Use relative action-anchor pose for diffusion
+rel_pose_type: quaternion # (quaternion, rotation_6d, logmap) representation for relative action-anchor pose
 
 x_encoder: mlp # Encoder current timestep x
 y_encoder: mlp # (mlp, dgcnn) Encoder for y object (e.g. anchor pcd)

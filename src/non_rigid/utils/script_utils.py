@@ -105,6 +105,10 @@ def create_datamodule(cfg):
         raise ValueError(
             f"Model type: '{cfg.model.type}' and dataset type: '{cfg.dataset.type}' are incompatible."
         )
+    # set scene-specific configs based on model
+    # if "rel_pose" in cfg.model:
+    cfg.dataset.rel_pose = cfg.model.rel_pose
+    cfg.dataset.rel_pose_type = cfg.model.rel_pose_type
 
     # check dataset name
     if cfg.dataset.name == "proc_cloth":

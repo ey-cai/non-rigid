@@ -12,12 +12,12 @@ sample_size_action: 512
 sample_size_anchor: 512
 downsample_type: fps
 
-scene: True
-world_frame: True
-
-# multi_cloth:
-#   hole: single
-#   size: 100
+scene: True # scene-level reasoning
+scene_anchor: False # scene-level anchor; cannot be True if scene is True
+scene_anchor_center: False # if True, override center_type to the scene center
+world_frame: True # world frame for scene/object
+rel_pose: null # relative action-anchor pose
+rel_pose_type: null # (quaternion, rotation_6d, logmap) rotation representation for relative action-anchor pose
 
 cloth_geometry: single
 cloth_pose: fixed

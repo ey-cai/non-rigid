@@ -4,9 +4,11 @@ name: df_base
 type: flow # (flow, point) Type of model
 size: xS # (xs, s, ...) Architecture of DiT
 in_channels: 6 # Number of input channels
-learn_sigma: True
-center_noise: False
-rotary: False
+learn_sigma: True # Learn sigma for diffusion
+center_noise: False # Center noise for diffusion
+rotary: False # Use rotary embedding for diffusion
+rel_pose: False # Use relative action-anchor pose for diffusion
+rel_pose_type: quaternion # (quaternion, rotation_6d) rotation representation for relative action-anchor pose
 
 # diffusion settings
 # TODO: combine these into one param

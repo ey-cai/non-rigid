@@ -69,6 +69,30 @@ class TimestepEmbedder(nn.Module):
         t_emb = self.mlp(t_freq)
         return t_emb
 
+class RelativePoseEmbedder(nn.Module):
+    """
+    Embeds relative poses into vector representations.
+    """
+    def __init__(self, hidden_size, rel_pose_type):
+        super().__init__()
+        if rel_pose_type == "quaternion":
+            input_size = 7
+        elif rel_pose_type == "rotation_6d":
+            input_size = 9
+        elif rel_pose_type == "logmap":
+            input_size = 6
+        else:
+            raise ValueError(f"Unknown relative pose rotation type: {rel_pose_type}")
+        self.hidden_size = hidden_size
+        self.mlp = nn.Sequential(
+            nn.Linear(input_size, hidden_size, bias=True),
+            nn.SiLU(),
+            nn.Linear(hidden_size, hidden_size, bias=True),
+        )
+    
+    def forward(self, poses):
+        return self.mlp(poses)
+
 
 class LabelEmbedder(nn.Module):
     """
@@ -940,6 +964,12 @@ class DiT_PointCloud_Cross(nn.Module):
         # Timestamp embedding
         self.t_embedder = TimestepEmbedder(hidden_size)
 
+        # Relative action-anchor pose embedding, if enabled
+        if self.model_cfg.rel_pose:
+            self.pose_embedder = RelativePoseEmbedder(hidden_size, self.model_cfg.rel_pose_type)
+        else:
+            self.pose_embedder = None
+
         # DiT blocks
         block_fn = DiTRelativeCrossBlock if self.model_cfg.rotary else DiTCrossBlock
         self.blocks = nn.ModuleList(
@@ -972,6 +1002,11 @@ class DiT_PointCloud_Cross(nn.Module):
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
 
+        # Initialize rel pose embedding MLP:
+        if self.pose_embedder is not None:
+            nn.init.normal_(self.pose_embedder.mlp[0].weight, std=0.02)
+            nn.init.normal_(self.pose_embedder.mlp[2].weight, std=0.02)
+
         # Zero-out adaLN modulation layers in DiT blocks:
         for block in self.blocks:
             nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
@@ -989,6 +1024,7 @@ class DiT_PointCloud_Cross(nn.Module):
             t: torch.Tensor,
             y: torch.Tensor,
             x0: Optional[torch.Tensor] = None,
+            rel_pose: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Forward pass of DiT with scene cross attention.
@@ -998,6 +1034,7 @@ class DiT_PointCloud_Cross(nn.Module):
             t (torch.Tensor): (B,) tensor of diffusion timesteps
             y (torch.Tensor): (B, D, N) tensor of un-noised scene (e.g. anchor) features
             x0 (Optional[torch.Tensor]): (B, D, N) tensor of un-noised x (e.g. action) features
+            rel_pose (Optional[torch.Tensor]): (B, Dp, N) tensor of relative poses between x0 and y
         """
         # noise-centering, if enabled
         if self.model_cfg.center_noise:
@@ -1025,17 +1062,23 @@ class DiT_PointCloud_Cross(nn.Module):
         x = x_emb.permute(0, 2, 1)
 
         # timestep embedding
-        t_emb = self.t_embedder(t)
+        c = self.t_embedder(t)
+
+        # relative pose embedding
+        if self.model_cfg.rel_pose:
+            assert rel_pose is not None, "relative poses must be provided if rel_pose is enabled"
+            rel_pose_emb = self.pose_embedder(rel_pose)
+            c = c + rel_pose_emb
 
         # forward pass through DiT blocks
         for block in self.blocks:
             if self.model_cfg.rotary:
-                x = block(x, y_emb, t_emb, x_pos, y_pos)
+                x = block(x, y_emb, c, x_pos, y_pos)
             else:
-                x = block(x, y_emb, t_emb)
+                x = block(x, y_emb, c)
 
         # final layer
-        x = self.final_layer(x, t_emb)
+        x = self.final_layer(x, c)
         x = x.permute(0, 2, 1)
         return x
 

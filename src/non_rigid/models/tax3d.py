@@ -493,6 +493,13 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
         pc_action = pc_action.permute(0, 2, 1) # channel first
         pc_anchor = pc_anchor.permute(0, 2, 1) # channel first
         model_kwargs = dict(x0=pc_action, y=pc_anchor)
+
+        # check for relative action-anchor pose
+        if self.model_cfg.rel_pose:
+            rel_pose = batch["rel_pose"].to(self.device)
+            if num_samples is not None:
+                rel_pose = expand_pcd(rel_pose, num_samples)
+            model_kwargs["rel_pose"] = rel_pose
         return model_kwargs
     
     def get_world_preds(self, batch, num_samples, pc_action, pred_dict):
