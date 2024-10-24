@@ -1,4 +1,0 @@
-name: microwave_flow
-data_dir: ~/datasets/nrp/dataset/demos/microwave_flow
-type: articulated
-sample_size: 1200

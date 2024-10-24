@@ -1,6 +1,0 @@
-name: proc_cloth_overfit
-# data_dir: ~/datasets/nrp/ProcCloth/single_cloth/demos
-data_dir: "~/datasets/nrp/ProcCloth/single_cloth_double_anchor/demos"
-type: cloth
-sample_size: 213
-num_anchors: 2 # 1
