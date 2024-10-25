@@ -550,7 +550,7 @@ class DeformablePlacementDataset(data.Dataset):
             # if relative action-anchor pose, add the relative transform
             if self.dataset_cfg.rel_pose:
                 rel_pose = T_action2world.compose(T_goal2world.inverse())
-                # converting rel_pose based on representation type
+                # converting relative pose based on representation type
                 if self.dataset_cfg.rel_pose_type == "quaternion":
                     translation = rel_pose.get_matrix().squeeze(0)[3, :3]
                     rotation = matrix_to_quaternion(rel_pose.get_matrix().squeeze(0)[:3, :3])

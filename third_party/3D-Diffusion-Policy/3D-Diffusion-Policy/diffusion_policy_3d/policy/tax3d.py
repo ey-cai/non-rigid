@@ -38,40 +38,6 @@ class TAX3D(BasePolicy):
         self.network.load_state_dict(
             {k.partition(".")[2]: v for k, v, in checkpoint["state_dict"].items()}
         )
-
-        # self.network = DiffusionFlowBase(
-        #     model_cfg=self.run_cfg.model
-        # )
-        
-        # # Load the network weights.
-        # checkpoint = torch.load(ckpt_file, map_location=self.device)
-        # self.network.load_state_dict(
-        #     {k.partition(".")[2]: v for k, v, in checkpoint["state_dict"].items()}
-        # )
-        # self.network.eval()
-
-        # # Setting sample sizes.
-        # if self.eval_cfg.inference.action_full:
-        #     self.run_cfg.dataset.sample_size_action = -1
-        # self.eval_cfg.inference.sample_size = self.run_cfg.dataset.sample_size_action    
-        # self.eval_cfg.inference.sample_size_anchor = self.run_cfg.dataset.sample_size_anchor
-
-        # # Load the model.
-        # if self.run_cfg.model.type == "flow":
-        #     self.model = FlowPredictionInferenceModule(
-        #         self.network,
-        #         inference_cfg=self.eval_cfg.inference,
-        #         model_cfg=self.run_cfg.model,
-        #     )
-        # elif self.run_cfg.model.type == "point":
-        #     self.model = PointPredictionInferenceModule(
-        #         self.network,
-        #         task_type=self.run_cfg.task_type,
-        #         inference_cfg=self.eval_cfg.inference,
-        #         model_cfg=self.run_cfg.model,
-        #     )
-        # else:
-        #     raise ValueError(f"Unknown model type: {self.run_cfg.type}")
         self.network.eval()
         self.model.eval()
         self.model.to(device)
@@ -95,13 +61,7 @@ class TAX3D(BasePolicy):
         """
         # if goal_position is unset (after policy reset), predict the goal position.
         if self.goal_position == None:
-            # pred_dict = self.model_predict(obs_dict)
-            # pred_action = pred_dict["pred_world_action"]
-            # pred_flow = pred_dict["pred_world_flow"]
-
-            pred_action, results_world = self.model_predict(obs_dict)
-
-            # pred_action = pred_dict["point"]["pred_world"]
+            pred_action, results_world = self.model.predict_obs(obs_dict, self.run_cfg)
 
             if self.eval_cfg.task.env_runner.task_name == "proccloth":
                 # TODO: this is is missing segmentation logic for SD models
@@ -130,93 +90,3 @@ class TAX3D(BasePolicy):
             'action': self.goal_position,
         }
         return action_dict
-    
-    def model_predict(self, obs_dict):
-        """
-        TAX3D inference.
-        """
-
-        # TODO: this needs to be updated for SD models, but low priority
-        # points_action = obs_dict["pc_action"]
-        # points_anchor = obs_dict["pc_anchor"]
-
-        action_pc = obs_dict["pc_action"]
-        anchor_pc = obs_dict["pc_anchor"]
-        action_seg = obs_dict["seg"]
-        anchor_seg = obs_dict["seg_anchor"]
-
-
-        if self.run_cfg.dataset.scene:
-            # scene-level processing
-            scene_pc = torch.cat([action_pc, anchor_pc], dim=1)
-            scene_seg = torch.cat([action_seg, anchor_seg], dim=1)
-
-            # center the point cloud
-            scene_center = scene_pc.mean(dim=1)
-            scene_pc = scene_pc - scene_center
-            T_goal2world = Translate(scene_center).get_matrix()
-
-            item = {
-                "pc_action": scene_pc,
-                "seg": scene_seg,
-                "T_goal2world": T_goal2world,
-            }
-        else:
-            # object-centric processing
-            if self.run_cfg.dataset.world_frame:
-                action_center = torch.zeros(3, dtype=torch.float32, device=self.device).unsqueeze(0)
-                anchor_center = torch.zeros(3, dtype=torch.float32, device=self.device).unsqueeze(0)
-            else:
-                action_center = action_pc.mean(dim=1)
-                anchor_center = anchor_pc.mean(dim=1)
-
-            # center the point clouds
-            action_pc = action_pc - action_center
-            anchor_pc = anchor_pc - anchor_center
-            T_action2world = Translate(action_center).get_matrix()
-            T_goal2world = Translate(anchor_center).get_matrix()
-
-            item = {
-                "pc_action": action_pc,
-                "pc_anchor": anchor_pc,
-                "seg": action_seg,
-                "seg_anchor": anchor_seg,
-                "T_action2world": T_action2world,
-                "T_goal2world": T_goal2world,
-            }
-
-        pred_dict = self.model.predict(item, self.eval_cfg.inference.num_trials, progress=False)
-        pred_action = pred_dict["point"]["pred_world"]
-        results_world = pred_dict["results_world"]
-
-        if self.run_cfg.dataset.scene:
-            # masking out action object in scene-level processing
-            pred_action = pred_action[:, scene_seg.squeeze(0).bool(), :]
-            results_world = [res[:, scene_seg.squeeze(0).bool(), :] for res in results_world]
-
-        return pred_action, results_world
-
-        # if self.run_cfg.dataset.world_frame:
-        #     action_center = torch.zeros(3, dtype=torch.float32, device=self.device).unsqueeze(0)
-        #     anchor_center = torch.zeros(3, dtype=torch.float32, device=self.device).unsqueeze(0)
-        # else:
-        #     action_center = points_action.mean(dim=1)
-        #     anchor_center = points_anchor.mean(dim=1)
-
-        # points_action = points_action - action_center
-        # points_anchor = points_anchor - anchor_center
-
-
-        # T_action2world = Translate(action_center).get_matrix()
-        # T_goal2world = Translate(anchor_center).get_matrix()
-
-        # item = {
-        #     'pc_action': points_action,
-        #     'pc_anchor': points_anchor,
-        #     'seg': obs_dict['seg'],
-        #     'seg_anchor': obs_dict['seg_anchor'],
-        #     'T_action2world': T_action2world,
-        #     'T_goal2world': T_goal2world,
-        # }
-        
-        return self.model.predict(item, self.eval_cfg.inference.num_trials, progress=False)
