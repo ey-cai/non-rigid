@@ -498,7 +498,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
                     rotation = matrix_to_quaternion(rel_pose.get_matrix()[:, :3, :3])
                     rel_pose = torch.cat([translation, rotation], dim=1)
                 elif run_cfg.dataset.rel_pose_type == "rotation_6d":
-                    translation = rel_pose.get_matrix()[3, :3]
+                    translation = rel_pose.get_matrix()[:, 3, :3]
                     rotation = matrix_to_rotation_6d(rel_pose.get_matrix()[:, :3, :3])
                     rel_pose = torch.cat([translation, rotation], dim=1)
                 elif run_cfg.dataset.rel_pose_type == "logmap":
