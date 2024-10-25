@@ -43,6 +43,26 @@ pip install -e .
 ```
 And you're done!
 
+# Generating Datasets #
+
+For convenience, the exact datasets used to run all experiments in the paper can be found [here](https://www.dropbox.com/scl/fi/l0iz7fjs0ooewdbhv6x4w/tax3d_data.zip?rlkey=ccckswgltmsztbq99urw07k1t&st=c3oq7hyz&dl=0).
+
+As a reference, these are the commands to re-generate the datasets:
+```
+# For HangProcCloth-simple
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_proccloth.py --root_dir="<path/to/data/directory>/proccloth" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --cloth_hole=single
+
+# For HangProcCloth-unimodal
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_proccloth.py --root_dir="<path/to/data/directory>/proccloth" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --random_cloth_geometry --cloth_hole=single
+
+# For HangProcCloth-multimodal
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_proccloth.py --root_dir="<path/to/data/directory>/proccloth" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --random_cloth_geometry --cloth_hole=double
+
+# For HangBag
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_hangbag.py --root_dir="<path/to/data/directory>/hangbag" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --cloth_hole=single
+```
+As noted in the paper, `HangProcCloth-simple` and `HangBag` used `train/val/val_ood` split sizes of 16/40/40, while `HangProcCloth-unimodal` and `HangProcCloth-multimodal` used 64/40/40.
+
 # Training Models #
 To train a model, run:
 ```

@@ -17,12 +17,10 @@ from PIL import Image
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='data', help='directory to save data')
     parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run')
     parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
     parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
-    # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
     parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
@@ -32,9 +30,6 @@ def parse_args():
     parser.add_argument('--cloth_hole', type=str, default='single', help='number of holes in cloth')
     # Args for demo generation.
     parser.add_argument('--vid_speed', type=int, default=3, help='speed of rollout video')
-    parser.add_argument('--save_demos', action='store_true', help='generate DEDO demos')
-    parser.add_argument('--save_tax3d', action='store_true', help='save TAX3D demos')
-    parser.add_argument('--save_rollout_vids', action='store_true', help='save rollout videos')
     args, _ = parser.parse_known_args()
     return args
 
@@ -57,14 +52,8 @@ if __name__ == '__main__':
     num_episodes = args.num_episodes
     action_num_points = args.action_num_points
     anchor_num_points = args.anchor_num_points
-    # anchor_config = args.anchor_config
     split = args.split
     vid_speed = args.vid_speed
-
-    save_demos = args.save_demos
-    save_tax3d = args.save_tax3d
-    save_rollout_vids = args.save_rollout_vids
-
     random_cloth_geometry = args.random_cloth_geometry
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
@@ -82,50 +71,38 @@ if __name__ == '__main__':
     cloth_pose = 'random' if random_cloth_pose else 'fixed'
     anchor_geometry = 'multi' if random_anchor_geometry else 'single'
     anchor_pose = 'random' if random_anchor_pose else 'fixed'
+    num_holes = 1 if cloth_hole == 'single' else 2
 
     exp_name_dir = (
         f'cloth={cloth_geometry}-{cloth_pose} ' + \
         f'anchor={anchor_geometry}-{anchor_pose} ' + \
         f'hole={cloth_hole}'
     )
-    # TODO: get rid of the env_name arg
-    
-    # save_dir = os.path.join(args.root_dir, 'dedo_'+args.env_name+'_'+anchor_config+'_expert_'+split+'.zarr')
-    # tax3d_save_dir = os.path.join(args.root_dir, 'tax3d/multi_cloth_1/'+split+'_1/')
 
+    # creating directories
+    args.root_dir = os.path.expanduser(args.root_dir)
     save_dir = os.path.join(args.root_dir, exp_name_dir, f'{split}.zarr')
     tax3d_save_dir = os.path.join(args.root_dir, exp_name_dir, f'{split}_tax3d/')
     rollout_vids_save_dir = os.path.join(args.root_dir, exp_name_dir, f'{split}_rollout_vids/')
-    # TODO: eventually, this demo generation should be more general; handle unified experiment names, and train/val/val_ood splits
-
-    # creating directory for rollouts
-    if save_demos:
-        if os.path.exists(save_dir):
-            cprint('Data already exists at {}'.format(save_dir), 'red')
-            cprint("If you want to overwrite, delete the existing directory first.", "red")
-            cprint("Do you want to overwrite? (y/n)", "red")
-            user_input = input()
-            if user_input == 'y':
-                cprint('Overwriting {}'.format(save_dir), 'red')
-                os.system('rm -rf {}'.format(save_dir))
-            else:
-                cprint('Exiting', 'red')
-                exit(0)
-        os.makedirs(save_dir, exist_ok=True)
-
-    # creating directory for tax3d data
-    if save_tax3d:
-        os.makedirs(tax3d_save_dir, exist_ok=True)
-
-    # creating directory for rollout videos
-    if save_rollout_vids:
-        os.makedirs(rollout_vids_save_dir, exist_ok=True)
+    if os.path.exists(save_dir):
+        cprint('Data already exists at {}'.format(save_dir), 'red')
+        cprint("If you want to overwrite, delete the existing directory first.", "red")
+        cprint("Do you want to overwrite? (y/n)", "red")
+        user_input = input()
+        if user_input == 'y':
+            cprint('Overwriting {}'.format(save_dir), 'red')
+            os.system('rm -rf {}'.format(save_dir))
+        else:
+            cprint('Exiting', 'red')
+            exit(0)
+    os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(tax3d_save_dir, exist_ok=True)
+    os.makedirs(rollout_vids_save_dir, exist_ok=True)
 
     ###############################
     # parse DEDO demo args and create DEDO env
     ###############################
     dedo_args = get_args()
-    # dedo_args.env = 'HangProcCloth-v0'
     dedo_args.env = 'HangBag-v0'
     dedo_args.tax3d = True
     dedo_args.rollout_vid = True
@@ -136,19 +113,9 @@ if __name__ == '__main__':
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)
 
-    # TODO: based on env name, there should be some logic here handling resetting of the environment
-    # potentially have to load env configuration from TAX3D datasets
-    num_holes = 1 if cloth_hole == 'single' else 2
-    # deform_params = { # for single-cloth datasets
-    #     'num_holes': num_holes,
-    #     'node_density': 25,
-    #     'w': 1.0,
-    #     'h': 1.0,
-    #     'holes': [{'x0': 8, 'x1': 16, 'y0': 9, 'y1': 13}]
-    # }
+    # creating env
     kwargs = {'args': dedo_args}
     env = gym.make(dedo_args.env, **kwargs)
-
 
     # settings seed based on split
     if split == 'train':
@@ -158,7 +125,6 @@ if __name__ == '__main__':
     elif split == 'val_ood':
         seed = 20
     env.seed(seed)
-
 
     ###############################
     # run episodes
@@ -206,12 +172,10 @@ if __name__ == '__main__':
             else:
                 raise ValueError("Only generating datasets for random anchor poses")
 
-
             obs = env.reset(
                 rigid_rot=rigid_rot,
                 rigid_trans=rigid_trans,
                 deform_params=deform_params,
-                # deform_params={'id0': 1, 'id1': 34},
                 anchor_params=anchor_params,
             )
 
@@ -228,8 +192,6 @@ if __name__ == '__main__':
                 'anchors': env.anchors, # this is legacy?
             }
 
-
-
             # episode data
             action_pcd_arrays_sub = []
             anchor_pcd_arrays_sub = []
@@ -240,36 +202,30 @@ if __name__ == '__main__':
             total_count_sub = 0
             reward_sum = 0
 
-
             # get action from pseudo-expert
             random_hole = np.random.randint(num_holes)
-            action = env.pseudo_expert_action(random_hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
             while True:
                 action = env.pseudo_expert_action(random_hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
                 # increment total
                 total_count_sub += 1
 
-                # update episode data
-
-                # expected keys from obs:
-                # 'action_pcd', 'anchor_pcd'
+                # downsample point clouds for demos (not tax3d demos)
                 obs_action_pcd = obs['action_pcd']
                 obs_anchor_pcd = obs['anchor_pcd']
                 gripper_state = obs['gripper_state']
 
-                # downsampling just for demos (not tax3d)
                 if obs_action_pcd.shape[0] > 512:
                     obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
                 if obs_anchor_pcd.shape[0] > 512:
                     obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
 
+                # update episode data
                 action_pcd_arrays_sub.append(obs_action_pcd)
                 anchor_pcd_arrays_sub.append(obs_anchor_pcd)
                 state_arrays_sub.append(gripper_state)
                 action_arrays_sub.append(action)
-                # TODO: do we need to keep track of rewards?
 
-                # obs, reward, done, info = env.step(action, action_type='velocity')
+                # step environment
                 obs, reward, done, info = env.step(action, action_type='position')
                 reward_sum += reward
                 if done:
@@ -278,6 +234,7 @@ if __name__ == '__main__':
 
             if success:
                 print('Success!')
+                # updating successful demo
                 total_count += total_count_sub
                 episode_ends_arrays.append(total_count)
                 reward_list.append(reward_sum)
@@ -288,29 +245,25 @@ if __name__ == '__main__':
                 state_arrays.extend(state_arrays_sub)
                 action_arrays.extend(action_arrays_sub)
 
-
-                # TODO: this is incredibly hacky, but save demo id??
-                # updating tax3d demo with flow, and saving
+                # updating successful tax3d demo
                 tax3d_demo['flow'] = obs["action_pcd"] - tax3d_demo['action_pc']
-                if save_tax3d:
-                    np.savez(
-                        os.path.join(tax3d_save_dir, f'demo_{num_success}.npz'),
-                        **tax3d_demo
-                    )
+                np.savez(
+                    os.path.join(tax3d_save_dir, f'demo_{num_success}.npz'),
+                    **tax3d_demo
+                )
 
-                # saving rollout video
-                if save_rollout_vids:
-                    vid_frames = info['vid_frames']
-                    vid_frames_list = [
-                        Image.fromarray(frame) for frame in vid_frames
-                    ]
-                    vid_frames_list[0].save(
-                        os.path.join(rollout_vids_save_dir, f'demo_{num_success}.gif'),
-                        save_all=True,
-                        append_images=vid_frames_list[vid_speed::vid_speed],
-                        duration=33,
-                        loop=0,
-                    )
+                # updating successful rollout video
+                vid_frames = info['vid_frames']
+                vid_frames_list = [
+                    Image.fromarray(frame) for frame in vid_frames
+                ]
+                vid_frames_list[0].save(
+                    os.path.join(rollout_vids_save_dir, f'demo_{num_success}.gif'),
+                    save_all=True,
+                    append_images=vid_frames_list[vid_speed::vid_speed],
+                    duration=33,
+                    loop=0,
+                )
 
                 num_success += 1
                 pbar.update(1)
@@ -321,10 +274,6 @@ if __name__ == '__main__':
     ###############################
     # save data
     ###############################
-    if not save_demos:
-        cprint('Not saving demos', 'red')
-        exit(0)
-
     # create zarr file
     zarr_root = zarr.group(save_dir, overwrite=True)
     zarr_data = zarr_root.create_group('data')
