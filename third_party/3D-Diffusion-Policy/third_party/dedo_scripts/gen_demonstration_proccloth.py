@@ -17,7 +17,7 @@ from PIL import Image
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root_dir', type=str, default='data', help='directory to save data')
+    parser.add_argument('--root_dir', type=str, default='~/data', help='directory to save data')
     parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run')
     parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
     parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
@@ -113,15 +113,16 @@ if __name__ == '__main__':
     dedo_args.tax3d = True
     dedo_args.rollout_vid = True
     dedo_args.pcd = True
-    dedo_args.logdir = 'rendered'
     dedo_args.cam_config_path = f'{CAM_CONFIG_DIR}/camview_0.json'
-    dedo_args.viz = True
+    dedo_args.viz = False
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)
 
     # creating env
     kwargs = {'args': dedo_args}
     env = gym.make(dedo_args.env, **kwargs)
+
+    breakpoint()
 
     # settings seed based on split
     if split == 'train':

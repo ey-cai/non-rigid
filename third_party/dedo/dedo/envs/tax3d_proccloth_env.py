@@ -31,19 +31,20 @@ import plotly.graph_objects as go
 from PIL import Image
 import copy
 
-from tax3d_env import Tax3DEnv
+from .tax3d_env import Tax3dEnv
 
-class Tax3DProcClothEnv(Tax3DEnv):
+class Tax3dProcClothEnv(Tax3dEnv):
     """
     Tax3d environment for HangProcCloth task.
     """
 
     def __init__(self, args):
+        print("TRYING TO MAKE THIS ENVIRONMENT")
         super().__init__(args)
 
     def load_objects(self, sim, args, debug,
-                     deform_pos = {}, rigid_pos = {},
-                     deform_params = {}, anchor_params = {}):
+                     deform_pos = {}, rigid_pose = {},
+                     deform_params = {}, rigid_params = {}):
         # Make v0 the random version
         if args.version == 0:
             args.use_random_textures = True
@@ -51,6 +52,12 @@ class Tax3DProcClothEnv(Tax3DEnv):
         data_path = os.path.join(os.path.split(__file__)[0], '..', 'data')
         args.data_path = data_path
         sim.setAdditionalSearchPath(data_path)
+
+        # TODO: implement this without using the args; those should be set as 
+        # attributes during the reset function
+
+        # setting task-specific parameters, if necessary
+        args.node_density = 25
 
     def check_centroid(self):
         pass

@@ -31,8 +31,11 @@ import plotly.graph_objects as go
 from PIL import Image
 import copy
 
+import pkgutil
+import pybullet_data
 
-class Tax3DEnv(gym.Env):
+
+class Tax3dEnv(gym.Env):
     """
     This is a base class for the tax3d environment that all of the task-specific classes will inherit 
     form for convenience, with the purpose of consolidating common functionality. Most of the code is borrowed 
@@ -49,7 +52,7 @@ class Tax3DEnv(gym.Env):
     def __init__(self, args):
         self.args = args
         self.cam_on = args.cam_resolution > 0
-        self.task_name = ...
+        self.task_name = ... # TODO: TAKE THIS FROM ARGS?
 
         # this is hacky - used for proper storing of anchor pcd from first frame
         self.camera_config = None
@@ -65,11 +68,40 @@ class Tax3DEnv(gym.Env):
             self.scene_name = 'dress'  # same human figure for dress and mask tasks
 
 
-        # Initialize sim and load objects.
-        self.sim = bclient.BulletClient(
-            connection_mode=pybullet.GUI if args.viz else pybullet.DIRECT)
-        if self.args.viz:  # no rendering during load
+        # # Initialize sim and load objects.
+        # self.sim = bclient.BulletClient(
+        #     connection_mode=pybullet.GUI if args.viz else pybullet.DIRECT)
+        # # self.sim = bclient.BulletClient(connection_mode=pybullet.DIRECT)
+        # if self.args.viz:  # no rendering during load
+        #     self.sim.configureDebugVisualizer(pybullet.COV_ENABLE_RENDERING, 0)
+
+        # # use egl for rendering
+        # self.sim.setAdditionalSearchPath(pybullet_data.getDataPath())
+        # egl = pkgutil.get_loader('eglRenderer')
+        # if (egl):
+        #     pluginId = self.sim.loadPlugin(egl.get_filename(), "_eglRendererPlugin")
+        # else:
+        #     pluginId = self.sim.loadPlugin('eglRendererPlugin')
+        # print('pluginId=', pluginId)
+
+
+        # Initialize sim.
+        if self.args.viz:
+            # open GUI, don't use EGL renderer
+            self.sim = bclient.BulletClient(connection_mode=pybullet.GUI)
+            # no rendering during load
             self.sim.configureDebugVisualizer(pybullet.COV_ENABLE_RENDERING, 0)
+        else:
+            self.sim = bclient.BulletClient(connection_mode=pybullet.DIRECT)
+
+            # use egl for rendering
+            self.sim.setAdditionalSearchPath(pybullet_data.getDataPath())
+            egl = pkgutil.get_loader('eglRenderer')
+            if (egl):
+                pluginId = self.sim.loadPlugin(egl.get_filename(), "_eglRendererPlugin")
+            else:
+                pluginId = self.sim.loadPlugin('eglRendererPlugin')
+            print('pluginId=', pluginId)
 
         reset_bullet(self.args, self.sim, debug=args.debug)
 
@@ -86,7 +118,7 @@ class Tax3DEnv(gym.Env):
         self.max_episode_len = self.args.max_episode_len
         # Define sizes of observation and action spaces.
         self.gripper_lims = np.tile(np.concatenate(
-            [Tax3DEnv.WORKSPACE_BOX_SIZE * np.ones(3),  # 3D pos
+            [Tax3dEnv.WORKSPACE_BOX_SIZE * np.ones(3),  # 3D pos
              np.ones(3)]), self.num_anchors)             # 3D linvel/MAX_OBS_VEL
         if args.cam_resolution <= 0:  # report gripper positions as low-dim obs
             self.observation_space = gym.spaces.Box(
@@ -104,7 +136,7 @@ class Tax3DEnv(gym.Env):
             -2.0 * np.ones(self.num_anchors * act_sz),
             2.0 * np.ones(self.num_anchors * act_sz))
         if self.args.debug:
-            print('Created Tax3DEnv with obs', self.observation_space.shape,
+            print('Created Tax3dEnv with obs', self.observation_space.shape,
                   'act', self.action_space.shape)
 
         # Point cloud observation initialization
@@ -128,7 +160,7 @@ class Tax3DEnv(gym.Env):
     def unscale_vel(act, unscaled):
         if unscaled:
             return act
-        return act*Tax3DEnv.MAX_ACT_VEL
+        return act*Tax3dEnv.MAX_ACT_VEL
 
     @property
     def anchor_ids(self):
@@ -158,23 +190,23 @@ class Tax3DEnv(gym.Env):
         return file_path
     
     def load_objects(self, sim, args, debug,
-                     deform_pos = {}, rigid_pos = {},
-                     deform_params = {}, anchor_params = {}):
+                     deform_pose = {}, rigid_pose = {},
+                     deform_params = {}, rigid_params = {}):
         raise NotImplementedError("load_objects method must be implemented in the subclass.")
     
     def seed(self, seed):
         np.random.seed(seed)
 
     def reset(self,
-              deform_pos = {}, rigid_pos = {},
-              deform_params = {}, anchor_params = {}):
+              deform_pose = {}, rigid_pose = {},
+              deform_params = {}, rigid_params = {}):
         self.stepnum = 0
-        self.anchor_pcd = None
+        self.rigid_pcd = None
         self.episode_reward = 0.0
         self.anchors = {}
         self.vid_frames = []
         # TODO: store deform_pos, rigid_pos, deofrm_params as well
-        self.anchor_params = anchor_params
+        self.rigid_params = rigid_params
         self.target_action = None
 
         if self.args.viz:  # no rendering during load
@@ -193,7 +225,7 @@ class Tax3DEnv(gym.Env):
 
         reset_bullet(self.args, self.sim, plane_texture=plane_texture_path)
         # TODO: change output type of load_objects
-        res = self.load_objects(self.sim, self.args, self.args.debug, deform_pos, rigid_pos, deform_params, anchor_params)
+        res = self.load_objects(self.sim, self.args, self.args.debug, deform_pose, rigid_pose, deform_params, rigid_params)
         self.rigid_ids, self.deform_id, self.deform_obj, self.goal_pos, self.deform_params = res
         load_floor(self.sim, plane_texture=plane_texture_path, debug=self.args.debug)
 
@@ -282,8 +314,6 @@ class Tax3DEnv(gym.Env):
 
         # Step through physics simulation.
         for sim_step in range(self.args.sim_steps_per_action):
-            # self.do_action(action, unscaled)
-            # self.do_action2(action, unscaled)
             if action_type == 'velocity':
                 self.do_action_velocity(action, unscaled)
             elif action_type == 'position':
@@ -308,22 +338,34 @@ class Tax3DEnv(gym.Env):
 
         # Update episode info and call make_final_steps if needed.
         if done:
-            # TODO: may need to rename or restructure the check functions
-            centroid_check, centroid_dist = self.check_centroid()
-            info = self.make_final_steps()
-            polygon_check = self.check_polygon()
-            # success requires both checks to pass for at least one hole
-            info['is_success'] = np.any(centroid_check * polygon_check)
-            info['centroid_dist'] = np.mean(centroid_dist)
+            if self.rollout_vid:
+                pre_release_frame = self.render(mode='rgb_array', width=self.vid_width, height=self.vid_height)
 
-            last_rwd = self.get_reward() * Tax3DEnv.FINAL_REWARD_MULT
+            # TODO: GOTTA CLEAN THIS UP - GENERALIZING THE SUCCESS CHECKS
+            # centroid_check, centroid_dist = self.check_centroid()
+            pre_release_check, pre_release_check_info = self.check_pre_release()
+            info = self.make_final_steps()
+            # polygon_check = self.check_polygon()
+            post_release_check, post_release_check_info = self.check_post_release()
+            # success requires both checks to pass for at least one hole
+            # info['is_success'] = np.any(centroid_check * polygon_check)
+            # info['centroid_dist'] = np.mean(centroid_dist)
+
+            info['is_success'] = np.any(pre_release_check * post_release_check)
+            info['pre_release_check'] = pre_release_check_info
+            info['post_release_check'] = post_release_check_info
+
+            last_rwd = self.get_reward() * Tax3dEnv.FINAL_REWARD_MULT
             reward += last_rwd
             info['final_reward'] = reward
 
             # Returning rollout video
             if self.rollout_vid:
                 info['vid_frames'] = self.vid_frames
-
+                info['color_key'] = self.color_key
+                info['viewmat'] = np.array(self._cam_viewmat)
+                info['pre_release_frame'] = pre_release_frame
+        
         else:
             info = {}
 
@@ -344,7 +386,7 @@ class Tax3DEnv(gym.Env):
         for i in range(self.num_anchors):
             command_anchor_velocity(
                 self.sim, self.anchor_ids[i],
-                Tax3DEnv.unscale_vel(action[i], unscaled))
+                Tax3dEnv.unscale_vel(action[i], unscaled))
 
     def do_action_position(self, action, unscaled, tax3d):
         # uses basic proportional position control instead
@@ -364,13 +406,13 @@ class Tax3DEnv(gym.Env):
         change_anchor_color_gray(self.sim, self.anchor_ids[0])
         change_anchor_color_gray(self.sim, self.anchor_ids[1])
         info = {'final_obs': []}
-        for sim_step in range(Tax3DEnv.STEPS_AFTER_DONE):
+        for sim_step in range(Tax3dEnv.STEPS_AFTER_DONE):
             # For lasso pull the string at the end to test lasso loop.
             # For other tasks noop action to let the anchors fall.
             if self.args.task.lower() == 'lasso':
                 if sim_step % self.args.sim_steps_per_action == 0:
-                    action = [10*Tax3DEnv.MAX_ACT_VEL,
-                              10*Tax3DEnv.MAX_ACT_VEL, 0]
+                    action = [10*Tax3dEnv.MAX_ACT_VEL,
+                              10*Tax3dEnv.MAX_ACT_VEL, 0]
                     self.do_action(action, unscaled=True)
             self.sim.stepSimulation()
             if sim_step % self.args.sim_steps_per_action == 0:
@@ -418,7 +460,6 @@ class Tax3DEnv(gym.Env):
 
         return obs
     
-
     def get_obs(self):
         grip_obs = self.get_grip_obs()
         done = False
@@ -453,15 +494,16 @@ class Tax3DEnv(gym.Env):
         # action pcd from ground truth mesh
         _, action_pcd = get_mesh_data(self.sim, self.deform_id)
         action_pcd = np.array(action_pcd)
-        anchor_pcd = self.anchor_pcd
+        rigid_pcd = self.rigid_pcd
   
-
+        # TODO: get anchor pcd from camera?
+        # slightly confusing notation - "anchor" refers to gripper in DEDO, but the rigid body in TAX3D
         obs_dict = {
             'img': obs, # TODO: this could technically include gripper state - ignored either way
             'gripper_state': grip_obs,
             'done': done,
             'action_pcd': action_pcd,
-            'anchor_pcd': anchor_pcd,
+            'anchor_pcd': rigid_pcd,
         }
 
         return obs_dict
@@ -473,7 +515,7 @@ class Tax3DEnv(gym.Env):
                 self.anchor_ids[i])
             linvel, _ = self.sim.getBaseVelocity(self.anchor_ids[i])
             anc_obs.extend(pos)
-            anc_obs.extend((np.array(linvel)/Tax3DEnv.MAX_OBS_VEL))
+            anc_obs.extend((np.array(linvel)/Tax3dEnv.MAX_OBS_VEL))
         return anc_obs
     
     def get_reward(self, debug=False):
@@ -491,8 +533,8 @@ class Tax3DEnv(gym.Env):
             cent_pts = pts[true_loop_vertices]
             cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]  # remove nans
             if len(cent_pts) == 0 or np.isnan(cent_pts).any():
-                dist = Tax3DEnv.WORKSPACE_BOX_SIZE*num_holes_to_track
-                dist *= Tax3DEnv.FINAL_REWARD_MULT
+                dist = Tax3dEnv.WORKSPACE_BOX_SIZE*num_holes_to_track
+                dist *= Tax3dEnv.FINAL_REWARD_MULT
                 # Save a screenshot for debugging.
                 # obs = self.render(mode='rgb_array', width=300, height=300)
                 # pth = f'nan_{self.args.env}_s{self.stepnum}.npy'
@@ -507,7 +549,7 @@ class Tax3DEnv(gym.Env):
             dist = np.min(dist)
         else:
             dist = np.mean(dist)
-        rwd = -1.0 * dist / Tax3DEnv.WORKSPACE_BOX_SIZE
+        rwd = -1.0 * dist / Tax3dEnv.WORKSPACE_BOX_SIZE
         return rwd
     
     def check_centroid(self):

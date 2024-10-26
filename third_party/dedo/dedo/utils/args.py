@@ -173,12 +173,13 @@ def args_postprocess(args):
             print('env version too high')
             exit(1)
     # Handling pcd rendering 
-    if args.pcd:
-        assert args.logdir is not None, "Need to specify a logdir for pcd."
-        os.makedirs(args.logdir, exist_ok=True)
+    # if args.pcd:
+    #     assert args.logdir is not None, "Need to specify a logdir for pcd."
+    #     os.makedirs(args.logdir, exist_ok=True)
     # update env name for TAX3D
     if args.tax3d:
-        args.env = args.task + 'TAX3D' + '-v' + str(args.version)
+        # args.env = args.task + 'TAX3D' + '-v' + str(args.version)
+        args.env = 'Tax3d' + args.task + '-v' + str(args.version)
 
 
 def get_args():

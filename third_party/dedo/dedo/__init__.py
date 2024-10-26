@@ -60,3 +60,10 @@ register(id='HangGarmentRobot-v1', entry_point='dedo.envs:DeformRobotEnv', order
 register(
     id='HangBagTAX3D-v0', entry_point='dedo.envs:HangBagTAX3D', order_enforce=False
 )
+
+
+
+# Register new updated environments
+register(
+    id='Tax3dHangProcCloth-v0', entry_point='dedo.envs:Tax3dProcClothEnv', order_enforce=False
+)
