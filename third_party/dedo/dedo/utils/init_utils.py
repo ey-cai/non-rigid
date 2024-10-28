@@ -212,16 +212,19 @@ def load_floor(sim, plane_texture=None, debug=False):
     # assert(floor_id == 1)  # camera assumes floor/ground is loaded second, AFTER THE DEFORMABLE
     return sim
 
-def apply_anchor_params(scene_name, scene_info, anchor_params):
+def apply_rigid_params(scene_name, scene_info, rigid_params):
     # TODO: this is hardcoded for the HangProcCloth task.
     # Update rigid body scales.
     if scene_name == "hangcloth":
-        scene_info['entities']['urdf/hanger.urdf']['globalScaling'] *= anchor_params['hanger_scale']
-        scene_info['entities']['urdf/tallrod.urdf']['globalScaling'] *= anchor_params['tallrod_scale']
+        if 'hanger_scale' in rigid_params:
+            scene_info['entities']['urdf/hanger.urdf']['globalScaling'] *= rigid_params['hanger_scale']
         
-        # Adjust hanger and goal position based on tallrod scale.
-        scene_info['entities']['urdf/hanger.urdf']['basePosition'][2] *= anchor_params['tallrod_scale']
-        scene_info['goal_pos'][0][2] *= anchor_params['tallrod_scale']
+        if 'tallrod_scale' in rigid_params:
+            scene_info['entities']['urdf/tallrod.urdf']['globalScaling'] *= rigid_params['tallrod_scale']
+        
+            # Adjust hanger and goal position based on tallrod scale.
+            scene_info['entities']['urdf/hanger.urdf']['basePosition'][2] *= rigid_params['tallrod_scale']
+            scene_info['goal_pos'][0][2] *= rigid_params['tallrod_scale']
     elif scene_name == "hangbag":
         pass
     return scene_info

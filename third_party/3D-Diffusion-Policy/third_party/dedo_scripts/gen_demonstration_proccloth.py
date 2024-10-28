@@ -112,8 +112,7 @@ if __name__ == '__main__':
     dedo_args.env = 'HangProcCloth-v0'
     dedo_args.tax3d = True
     dedo_args.rollout_vid = True
-    dedo_args.pcd = True
-    dedo_args.cam_config_path = f'{CAM_CONFIG_DIR}/camview_0.json'
+    # dedo_args.cam_config_path = f'{CAM_CONFIG_DIR}/camview_0.json'
     dedo_args.viz = False
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)
@@ -122,7 +121,6 @@ if __name__ == '__main__':
     kwargs = {'args': dedo_args}
     env = gym.make(dedo_args.env, **kwargs)
 
-    breakpoint()
 
     # settings seed based on split
     if split == 'train':
@@ -176,12 +174,14 @@ if __name__ == '__main__':
             # randomizing cloth pose
             if random_cloth_pose:
                 raise NotImplementedError("Need to implement random cloth pose")
+            else:
+                deform_transform = {}
             
             # randomizing cloth geometry
             if random_anchor_geometry:
                 raise NotImplementedError("Need to implement random anchor geometry")
             else:
-                anchor_params = {
+                rigid_params = {
                     'hanger_scale': 1.0,
                     'tallrod_scale': 1.0,
                 }
@@ -189,10 +189,14 @@ if __name__ == '__main__':
             # randomizing anchor pose
             if random_anchor_pose:
                 if split == 'val_ood':
-                    rigid_rot, rigid_trans = env.random_anchor_transform_ood()
+                    rigid_rotation, rigid_translation = env.random_anchor_transform_ood()
                 else:
-                    rigid_rot, rigid_trans = env.random_anchor_transform()
-                rigid_rot = rigid_rot.as_euler('xyz')
+                    rigid_rotation, rigid_translation = env.random_anchor_transform()
+                rigid_rotation = rigid_rotation.as_euler('xyz')
+                rigid_transform = {
+                    'rotation': rigid_rotation,
+                    'translation': rigid_translation,
+                }
             else:
                 raise ValueError("Only generating datasets for random anchor poses")
 
@@ -210,11 +214,18 @@ if __name__ == '__main__':
 
             for hole in range(num_holes):
                 # reset the environment
+                # TODO: this needs to be re-implemented; args are now different
+                # obs = env.reset(
+                #     rigid_rot=rigid_rot,
+                #     rigid_trans=rigid_trans,
+                #     deform_params=deform_params,
+                #     anchor_params=anchor_params,
+                # )
                 obs = env.reset(
-                    rigid_rot=rigid_rot,
-                    rigid_trans=rigid_trans,
+                    deform_transform=deform_transform,
+                    rigid_transform=rigid_transform,
                     deform_params=deform_params,
-                    anchor_params=anchor_params,
+                    rigid_params=rigid_params,
                 )
 
                 # initializing tax3d demo
@@ -224,8 +235,8 @@ if __name__ == '__main__':
                     'anchor_pc': obs['anchor_pcd'],
                     'anchor_seg': np.ones(obs['anchor_pcd'].shape[0]),
                     'speed_factor': 1.0, # this is legacy?
-                    'rot': rigid_rot,
-                    'trans': rigid_trans,
+                    'rot': rigid_rotation,
+                    'trans': rigid_translation,
                     'deform_params': deform_params,
                     'anchors': env.anchors, # this is legacy?
                 }
@@ -243,7 +254,7 @@ if __name__ == '__main__':
                 # rollout the policy for this hole
                 while True:
                     # get action
-                    action = env.pseudo_expert_action(hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
+                    action = env.pseudo_expert_action(hole)
                     total_count_sub += 1
 
                     # downsample point clouds for demos (not tax3d demos)
@@ -283,6 +294,21 @@ if __name__ == '__main__':
                     # updating successful tax3d demo
                     tax3d_demo["flow"] = obs["action_pcd"] - tax3d_demo["action_pc"]
                     tax3d_demo_list.append(tax3d_demo)
+
+                    # plot the tax3d demo
+                    from rpad.visualize_3d import plots as vpl
+                    vpl.segmentation_fig(
+                        np.concatenate([
+                            tax3d_demo["action_pc"],
+                            tax3d_demo["anchor_pc"],
+                            tax3d_demo["action_pc"] + tax3d_demo["flow"]
+                        ]),
+                        np.concatenate([
+                            np.ones(tax3d_demo["action_pc"].shape[0]),
+                            np.ones(tax3d_demo["anchor_pc"].shape[0]) * 2,
+                            np.ones(tax3d_demo["action_pc"].shape[0]) * 3
+                        ]).astype(int),
+                    ).show()
 
                     # updating successful rollout video
                     vid_frames = [

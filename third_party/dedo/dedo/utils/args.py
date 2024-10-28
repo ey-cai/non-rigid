@@ -107,7 +107,7 @@ def get_args_parser():
                         default="textures/deform/orange_pattern.png",
                         help='Texture file for the deformable objects')
     parser.add_argument('--rigid_texture_file', type=str,
-                        default="textures/rigid/red_marble.png",
+                        default="textures/rigid/darkbrownwood.jpg",
                         help='Texture file for the rigid objects')
     parser.add_argument('--plane_texture_file', type=str,
                         default="textures/plane/lightwood.jpg",
@@ -176,10 +176,17 @@ def args_postprocess(args):
     # if args.pcd:
     #     assert args.logdir is not None, "Need to specify a logdir for pcd."
     #     os.makedirs(args.logdir, exist_ok=True)
-    # update env name for TAX3D
+
+    # update env name for TAX3D, and set pcd to True
     if args.tax3d:
         # args.env = args.task + 'TAX3D' + '-v' + str(args.version)
+        args.pcd = True
         args.env = 'Tax3d' + args.task + '-v' + str(args.version)
+    
+    # if in debug mode, turn on visualization
+    if args.debug:
+        print('Turning on visualizations for debug mode.')
+        args.viz = True
 
 
 def get_args():

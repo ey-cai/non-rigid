@@ -24,7 +24,7 @@ from ..utils.anchor_utils import (
     pin_fixed, change_anchor_color_gray)
 from ..utils.init_utils import (
     load_deform_object, load_rigid_object, reset_bullet, load_deformable, 
-    load_floor, get_preset_properties, apply_anchor_params)
+    load_floor, get_preset_properties, apply_rigid_params)
 from ..utils.mesh_utils import get_mesh_data
 from ..utils.task_info import (
     DEFAULT_CAM_PROJECTION, DEFORM_INFO, SCENE_INFO, TASK_INFO,
@@ -312,7 +312,7 @@ class HangBagTAX3D(gym.Env):
 
 
         scene_info = copy.deepcopy(SCENE_INFO[scene_name])
-        scene_info = apply_anchor_params(scene_name, scene_info, anchor_params)
+        scene_info = apply_rigid_params(scene_name, scene_info, anchor_params)
 
 
         # TODO: load using baseposition and orientation first, save pc, and then transform
