@@ -543,17 +543,21 @@ class DeformEnvTAX3D(gym.Env):
         action = action.reshape(self.num_anchors, -1)
 
         # Step through physics simulation.
-        if action_type == 'position':
-            record_forces = self.do_action_position(action, unscaled, tax3d)
-            # print(record_forces.shape)
+        # eric
+        if False:
+            if action_type == 'position':
+                record_forces = self.do_action_position(action, unscaled, tax3d)
         for sim_step in range(self.args.sim_steps_per_action):
             # self.do_action(action, unscaled)
             # self.do_action2(action, unscaled)
             if action_type == 'position':
-                for i in range(self.num_anchors):
-                    force = np.clip(record_forces[i], -5.0, 5.0)
-                    self.sim.applyExternalForce(
-                        self.anchor_ids[i], -1, force.tolist(), [0, 0, 0], pybullet.LINK_FRAME)
+                if False:
+                    for i in range(self.num_anchors):
+                        force = np.clip(record_forces[i], -5.0, 5.0)
+                        self.sim.applyExternalForce(
+                            self.anchor_ids[i], -1, force.tolist(), [0, 0, 0], pybullet.LINK_FRAME)
+                else:
+                    record_forces = self.do_action_position(action, unscaled, tax3d)
             elif action_type == 'velocity':
                 self.do_action_velocity(action, unscaled)
             else:
