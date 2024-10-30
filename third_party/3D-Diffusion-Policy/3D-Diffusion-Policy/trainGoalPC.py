@@ -633,6 +633,7 @@ class EvalTAX3DWorkspace:
         artifact_dir = cfg.checkpoint.artifact_dir
         artifact = api.artifact(checkpoint_reference, type='model')
         ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+        breakpoint()
         self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_config)
 
     def eval_datasets(self):

@@ -192,8 +192,21 @@ class DP3(BasePolicy):
         # nobs = self.normalizer.normalize(obs_dict)
 
         nobs = obs_dict
-        point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of entire scene
+        # For training
+        # cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size
+        # action_pcd = nobs['action_pcd'][:, :, :cloth_size, :]
+        # anchor_pcd = nobs['anchor_pcd']
+        # ground_truth = nobs['ground_truth'][:, :, :cloth_size, :]
+        # point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=-2)
+        # point_cloud_mean = point_cloud.mean(dim=[-2, -3], keepdim=True) # Centroid of cloth
+        # nobs['point_cloud'] = point_cloud - point_cloud_mean
+
+        # For evaluating
+        point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        nobs['point_cloud'] = torch.cat((nobs['point_cloud'], torch.zeros((nobs['point_cloud'].shape[0], nobs['point_cloud'].shape[1], 
+                                                                                            1875- nobs['point_cloud'].shape[2], nobs['point_cloud'].shape[3])).to(self.device)), dim=-2)
+        
         point_cloud_mean = point_cloud_mean.squeeze(2)
         nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
         nobs['agent_pos'][..., 6:9] = nobs['agent_pos'][..., 6:9] - point_cloud_mean

@@ -42,12 +42,13 @@ dataset:
   # root_dir: ~/Documents/data
   # root_dir: ~/Documents/data/tax3d
 
-  cloth_geometry: multi # Single
+  cloth_geometry: multi
   cloth_pose: fixed
   anchor_geometry: single
   anchor_pose: random
   hole: single
-  goal_conditioning: ground truth # none
+  goal_conditioning: ground_truth
+  centroid: entire_scene
 
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}

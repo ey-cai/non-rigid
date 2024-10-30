@@ -102,6 +102,7 @@ class DeformEnvTAX3D(gym.Env):
             self.scene_name = 'dress'  # same human figure for dress and mask tasks
 
         # Initialize sim and load objects.
+        # Uncomment two lines below and comment out 108
         # self.sim = bclient.BulletClient(
         #     connection_mode=pybullet.GUI if args.viz else pybullet.DIRECT)
         self.sim = bclient.BulletClient(connection_mode=pybullet.DIRECT)
