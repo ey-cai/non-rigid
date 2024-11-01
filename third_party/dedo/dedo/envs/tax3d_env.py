@@ -345,6 +345,8 @@ class Tax3dEnv(gym.Env):
             info['is_success'] = np.any(pre_release_check * post_release_check)
             info['pre_release_check'] = pre_release_check_info
             info['post_release_check'] = post_release_check_info
+            # TODO: this assumes pre-release check is centroid dist
+            info['centroid_dist'] = np.min(pre_release_check_info)
 
             last_rwd = self.get_reward() * Tax3dEnv.FINAL_REWARD_MULT
             reward += last_rwd

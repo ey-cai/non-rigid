@@ -43,14 +43,9 @@ class DedoEnv:
             args.max_episode_len = 300
         else:
             raise ValueError(f"Unknown task name: {task_name}")
-        # TODO": this is the error
-        
-        # args.env = 'HangProcCloth-v0'
+
         args.tax3d = True
         args.rollout_vid = True
-        args.pcd = True
-        args.logdir = 'rendered'
-        args.cam_config_path = f"{CAM_CONFIG_DIR}/camview_0.json"
         args.viz = viz
         args_postprocess(args)
 
@@ -117,15 +112,14 @@ class DedoEnv:
         next_obs = self.get_obs()
         return next_obs, reward, done, info
 
-    def reset(self, 
-              cloth_rot=None, 
-              rigid_trans=None, 
-              rigid_rot=None, 
-              deform_params={}):
-        self.env.reset(cloth_rot=cloth_rot,
-                       rigid_trans=rigid_trans,
-                       rigid_rot=rigid_rot,
-                       deform_params=deform_params)
+    def reset(self, deform_transform={}, rigid_transform={},
+              deform_params={}, rigid_params={}):
+        self.env.reset(
+            deform_transform=deform_transform,
+            rigid_transform=rigid_transform,
+            deform_params=deform_params,
+            rigid_params=rigid_params
+        )
         return self.get_obs()
 
     def get_obs(self):

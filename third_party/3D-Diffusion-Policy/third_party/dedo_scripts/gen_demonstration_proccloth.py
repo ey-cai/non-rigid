@@ -9,9 +9,7 @@ from tqdm import tqdm
 import zarr
 from termcolor import cprint
 
-from dedo.utils.args import get_args, args_postprocess, CAM_CONFIG_DIR
-from dedo.envs import DeformEnvTAX3D
-
+from dedo.utils.args import get_args, args_postprocess
 from PIL import Image
 
 
@@ -113,7 +111,6 @@ if __name__ == '__main__':
     dedo_args.env = 'HangProcCloth-v0'
     dedo_args.tax3d = True
     dedo_args.rollout_vid = True
-    dedo_args.debug = True
     dedo_args.viz = args.debug_viz
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)

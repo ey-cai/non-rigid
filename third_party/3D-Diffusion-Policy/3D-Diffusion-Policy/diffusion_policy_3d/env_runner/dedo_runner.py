@@ -5,6 +5,7 @@ import collections
 import tqdm
 from termcolor import cprint
 import os
+from typing import Optional
 
 import torch.utils.data as data
 
@@ -24,12 +25,9 @@ class DedoRunner(BaseRunner):
     def __init__(self,
                  output_dir,
                  n_episodes=20,
-                 # max_steps=200, # TODO: also don't need max steps, env has it already
-                 n_obs_steps=8, # don't need multi step
-                 n_action_steps=8, # don't need multi step
+                 n_obs_steps=8,
+                 n_action_steps=8,
                  fps=10,
-                 # crf=22, # unclear what this is for
-                 # render_size=84, # unclear what this is for
                  tqdm_interval_sec=5.0,
                  task_name=None,
                  viz=False,
@@ -42,7 +40,6 @@ class DedoRunner(BaseRunner):
         self.vid_speed = 3
         self.diffusion_gif_speed = 2
 
-        # steps_per_render = max(10 // fps, 1)
 
         def env_fn():
             return MultiStepWrapper(
