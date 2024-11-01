@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument('--cloth_hole', type=str, default='single', help='number of holes in cloth')
     parser.add_argument('--tag', type=str, default='', help='additional tag for dataset description')
     # Args for demo generation.
+    parser.add_argument('--debug_viz', action='store_true', help='debug mode (turns on GUI)')
     parser.add_argument('--vid_speed', type=int, default=3, help='speed of rollout video')
     args, _ = parser.parse_known_args()
     return args
@@ -112,8 +113,8 @@ if __name__ == '__main__':
     dedo_args.env = 'HangProcCloth-v0'
     dedo_args.tax3d = True
     dedo_args.rollout_vid = True
-    # dedo_args.cam_config_path = f'{CAM_CONFIG_DIR}/camview_0.json'
-    dedo_args.viz = False
+    dedo_args.debug = True
+    dedo_args.viz = args.debug_viz
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)
 
@@ -214,13 +215,6 @@ if __name__ == '__main__':
 
             for hole in range(num_holes):
                 # reset the environment
-                # TODO: this needs to be re-implemented; args are now different
-                # obs = env.reset(
-                #     rigid_rot=rigid_rot,
-                #     rigid_trans=rigid_trans,
-                #     deform_params=deform_params,
-                #     anchor_params=anchor_params,
-                # )
                 obs = env.reset(
                     deform_transform=deform_transform,
                     rigid_transform=rigid_transform,
@@ -234,11 +228,11 @@ if __name__ == '__main__':
                     'action_seg': np.ones(obs['action_pcd'].shape[0]),
                     'anchor_pc': obs['anchor_pcd'],
                     'anchor_seg': np.ones(obs['anchor_pcd'].shape[0]),
-                    'speed_factor': 1.0, # this is legacy?
+                    # 'speed_factor': 1.0, # this is legacy?
                     'rot': rigid_rotation,
                     'trans': rigid_translation,
                     'deform_params': deform_params,
-                    'anchors': env.anchors, # this is legacy?
+                    # 'anchors': env.anchors, # this is legacy?
                 }
 
                 # episode data
@@ -294,21 +288,6 @@ if __name__ == '__main__':
                     # updating successful tax3d demo
                     tax3d_demo["flow"] = obs["action_pcd"] - tax3d_demo["action_pc"]
                     tax3d_demo_list.append(tax3d_demo)
-
-                    # plot the tax3d demo
-                    from rpad.visualize_3d import plots as vpl
-                    vpl.segmentation_fig(
-                        np.concatenate([
-                            tax3d_demo["action_pc"],
-                            tax3d_demo["anchor_pc"],
-                            tax3d_demo["action_pc"] + tax3d_demo["flow"]
-                        ]),
-                        np.concatenate([
-                            np.ones(tax3d_demo["action_pc"].shape[0]),
-                            np.ones(tax3d_demo["anchor_pc"].shape[0]) * 2,
-                            np.ones(tax3d_demo["action_pc"].shape[0]) * 3
-                        ]).astype(int),
-                    ).show()
 
                     # updating successful rollout video
                     vid_frames = [

@@ -7,28 +7,18 @@ import gym
 import pybullet
 import pybullet_utils.bullet_client as bclient
 
-from ..utils.anchor_utils import (
-    attach_anchor, command_anchor_velocity, command_anchor_position, create_anchor, create_anchor_geom,
-    pin_fixed, change_anchor_color_gray)
 from ..utils.init_utils import (
-    load_deform_object, load_rigid_object, reset_bullet, load_deformable, 
-    load_floor, get_preset_properties, apply_rigid_params)
+    load_deform_object, load_rigid_object, apply_rigid_params
+)
 from ..utils.mesh_utils import get_mesh_data
-# from ..utils.task_info import (
-#     DEFAULT_CAM_PROJECTION, DEFORM_INFO, SCENE_INFO, TASK_INFO,
-#     TOTE_MAJOR_VERSIONS, TOTE_VARS_PER_VERSION)
-from ..utils.procedural_utils import (
-    gen_procedural_hang_cloth, gen_procedural_button_cloth)
+from ..utils.procedural_utils import gen_procedural_hang_cloth
 from ..utils.args import preset_override_util
-from ..utils.process_camera import ProcessCamera, cameraConfig
 
 from scipy.spatial.transform import Rotation as R
 
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 
-import plotly.graph_objects as go
-from PIL import Image
 import copy
 
 # import "constants" from Tax3dEnv
@@ -79,9 +69,6 @@ class Tax3dProcClothEnv(Tax3dEnv):
         self.args.num_holes = 1
 
     def load_objects(self, args):
-        # TODO: implement this without using the args; those should be set as 
-        # attributes during the reset function
-
         # ----------------- LOADING DEFORMABLE OBJECT -----------------
         # Generate procedural cloth, and update deform params.
         deform_obj, deform_params = gen_procedural_hang_cloth(
@@ -151,39 +138,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
             )
             rigid_ids.append(id)
         
-        # storing rigid object point cloud, instead of rendering from RGBD throughout rollout
-        # first get anchor pcd
-        # NOTE: this check needs to be here, because object_ids must exist
-        # if self.camera_config is not None:
-        #     _, pcd, ids = self.get_pcd_obs().values()
-        #     from rpad.visualize_3d import plots as vpl
-
-        #     vpl.segmentation_fig(
-        #         pcd,
-        #         np.ones(pcd.shape[0]).astype(int)
-        #     ).show()
-        #     pcd = pcd[ids > 0]
-        #     breakpoint()
-
-            # # then, if rigid transformation is specified, apply it
-            # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
-            #     rigid_rotation = self.rigid_transform['rotation']
-            #     rigid_translation = self.rigid_transform['translation']
-            #     for id, (name, kwargs) in zip(rigid_ids, scene_info_copy['entities'].items()):
-            #         rigid_position, rigid_orientation = self.sim.multiplyTransforms(
-            #             positionA=R.from_euler('xyz', rigid_rotation).apply(kwargs['basePosition']),
-            #             orientationA=self.sim.getQuaternionFromEuler(kwargs['baseOrientation']),
-            #             positionB=rigid_translation,
-            #             orientationB=self.sim.getQuaternionFromEuler(rigid_rotation),
-            #         )
-            #         self.sim.resetBasePositionAndOrientation(id, rigid_position, rigid_orientation)
-                
-            #     pcd = R.from_euler('xyz', rigid_rotation).apply(pcd) + rigid_translation
-            # store anchor pcd
-            # self.rigid_pcd = pcd
-        
         # Mark the goal and store intermediate info for reward computations.
-        # TODO: this does not handle scaling
         goal_poses = scene_info_copy['goal_pos']
         if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
             goal_poses = [
@@ -191,14 +146,6 @@ class Tax3dProcClothEnv(Tax3dEnv):
                 for goal_pos in goal_poses
             ]
         
-        # Handling debug visualization.
-        if args.debug:
-            for i, goal_pos in enumerate(goal_poses):
-                print(f'goal_pos{i}', goal_pos)
-                alpha = 1 if i == 0 else 0.3  # primary vs secondary goal
-                create_anchor_geom(self.sim, goal_pos, mass=0.0,
-                                   rgba=(0, 1, 0, alpha), use_collision=False)
-
         return {
             'deform_id': deform_id,
             'deform_obj': deform_obj,

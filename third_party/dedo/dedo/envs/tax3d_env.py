@@ -9,28 +9,20 @@ import pybullet_utils.bullet_client as bclient
 
 from ..utils.anchor_utils import (
     attach_anchor, command_anchor_velocity, command_anchor_position, create_anchor, create_anchor_geom,
-    pin_fixed, change_anchor_color_gray)
+    pin_fixed, change_anchor_color_gray
+)
 from ..utils.init_utils import (
-    load_deform_object, load_rigid_object, reset_bullet, load_deformable, 
-    load_floor, get_preset_properties, apply_rigid_params)
+    reset_bullet,load_floor, get_preset_properties
+)
 from ..utils.mesh_utils import get_mesh_data
 from ..utils.task_info import (
     DEFAULT_CAM_PROJECTION, DEFORM_INFO, SCENE_INFO, TASK_INFO,
-    TOTE_MAJOR_VERSIONS, TOTE_VARS_PER_VERSION)
-from ..utils.procedural_utils import (
-    gen_procedural_hang_cloth, gen_procedural_button_cloth)
+    TOTE_MAJOR_VERSIONS, TOTE_VARS_PER_VERSION
+)
 from ..utils.args import preset_override_util
-from ..utils.camera_utils import get_camera_config
-from ..utils.process_camera import ProcessCamera, cameraConfig
+
 
 from scipy.spatial.transform import Rotation as R
-
-from shapely.geometry import Point
-from shapely.geometry.polygon import Polygon
-
-import plotly.graph_objects as go
-from PIL import Image
-import copy
 
 import pkgutil
 import pybullet_data
@@ -199,12 +191,12 @@ class Tax3dEnv(gym.Env):
         )
 
         reset_bullet(self.args, self.sim, plane_texture=plane_texture_path)
-        # TODO: change output type of load_objects
         res = self.load_objects(self.args)
         self.deform_id = res['deform_id']
         self.deform_obj = res['deform_obj']
         self.rigid_ids = res['rigid_ids']
         self.goal_pos = res['goal_poses']
+
         # Updating point cloud observation variables.
         self.pcd_view_mat = self._cam_viewmat
         self.pcd_proj_mat = DEFAULT_CAM_PROJECTION['projectionMatrix']
@@ -220,9 +212,17 @@ class Tax3dEnv(gym.Env):
 
         self.sim.stepSimulation() # step once to get initial state
 
+        # Handling debug visualization.
         debug_mrks = None
         if self.args.debug and self.args.viz:
-           debug_mrks = self.debug_viz_true_loop()
+            # Visualize goal positions.
+            for i, goal_pos in enumerate(self.goal_pos):
+                print(f'goal_pos{i}', goal_pos)
+                alpha = 1 if i == 0 else 0.3  # primary vs secondary goal
+                create_anchor_geom(self.sim, goal_pos, mass=0.0,
+                                   rgba=(0, 1, 0, alpha), use_collision=False)
+            # Visualize true loops.
+            debug_mrks = self.debug_viz_true_loop()
 
         # Setup dynamic anchors.
         if not self.food_packing:
