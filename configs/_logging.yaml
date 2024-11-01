@@ -31,3 +31,4 @@ wandb:
   # Put artifacts at the toplevel so that we don't have to re-download each time...
   artifact_dir: ${hydra:runtime.cwd}/wandb_artifacts
   online: True
+  name: None

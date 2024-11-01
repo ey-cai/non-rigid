@@ -30,6 +30,12 @@ elif [ $MODEL_TYPE == "cross_flow_relative" ]; then
 
   MODEL_PARAMS="model=df_cross model.type=flow"
   DATASET_PARAMS="dataset=ndf dataset.type=flow dataset.scene=False dataset.world_frame=False"
+# relative frame cross flow cfg
+elif [ $MODEL_TYPE == "cross_flow_relative_cfg" ]; then
+  echo "Training relative flow model with classifier-free guidance with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_cross_cfg model.type=flow"
+  DATASET_PARAMS="dataset=ndf dataset.type=flow dataset.scene=False dataset.world_frame=False"
 fi
 
 WANDB_MODE=$WANDB_MODE python scripts/train_diff.py \

@@ -125,6 +125,10 @@ def main(cfg):
         group=group,
     )
 
+    if cfg.wandb.name is not None: 
+        wandb.run.name = cfg.wandb.name
+        wandb.run.save() 
+
     ######################################################################
     # Create the trainer.
     # The trainer is responsible for running the training loop, and

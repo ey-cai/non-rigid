@@ -30,6 +30,10 @@ from non_rigid.models.tax3d import (
     SceneDisplacementModule,
     CrossDisplacementModule,
 )
+from non_rigid.models.tax3d_cfg import (
+    DiffusionTransformerCFGNetwork,
+    CrossDisplacementCFGModule,
+)
 
 from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
 from non_rigid.datasets.rigid import RigidDataModule
@@ -88,6 +92,10 @@ def create_model(cfg):
         network_fn = DiffusionTransformerNetwork
         # module_fn = Tax3dModule
         module_fn = CrossDisplacementModule
+    elif cfg.model.name == "df_cross_cfg":
+        network_fn = DiffusionTransformerCFGNetwork
+        # module_fn = Tax3dModule
+        module_fn = CrossDisplacementCFGModule
     elif cfg.model.name == "regression":
         network_fn = RegressionNetwork
         module_fn = RegressionModule

@@ -80,18 +80,27 @@ def eval_precision(stage, dataloader, model, device, num_trials, cfg):
     for batch in tqdm(dataloader, desc="Evaluating {} precision".format(stage)):
         batch = {key: value.to(device) for key, value in batch.items()}
         pred_dict = model.predict(batch, num_trials, progress=False)
-        pred_world = pred_dict["point"]["pred_world"] / cfg.dataset.pcd_scale_factor
-        goal_world = batch["pc"] / cfg.dataset.pcd_scale_factor
+        pred = pred_dict[cfg.dataset.type]["pred"]
+
+        # getting predicted action point cloud
+        if cfg.dataset.type == "flow":
+            pred_world = batch["pc_action"][:, :, :3] + pred
+        elif cfg.dataset.type == "point":
+            pred_world = pred
+        goal_world = batch["pc"][:, :, :3]
+        
+        # fix scaling for diffusion
+        pred_world = pred_world / cfg.dataset.pcd_scale_factor
+        goal_world = goal_world / cfg.dataset.pcd_scale_factor
 
         mean_rmse = pcd_rmse(pred_world, goal_world).mean().cpu().item()
 
-        
         gt_action_centroid = goal_world.mean(dim=1)
         pred_action_centroid = pred_world.mean(dim=1)
 
         t_err_centroid = torch.norm(gt_action_centroid - pred_action_centroid, dim=1).mean().cpu().item()
  
-        transformation_errors = get_pred_pcd_rigid_errors(batch=batch, pred_xyz=pred_dict["point"]["pred_world"], error_type= "demo", scale_factor=cfg.dataset.pcd_scale_factor)
+        transformation_errors = get_pred_pcd_rigid_errors(batch=batch, pred_xyz=pred_world, error_type= "demo", scale_factor=cfg.dataset.pcd_scale_factor)
         accumulate_metrics(metrics_list, transformation_errors, mean_rmse, t_err_centroid)
         
         if cfg.wandb.online:
@@ -136,6 +145,11 @@ def main(cfg):
                 cfg, resolve=True, throw_on_missing=True
             ),
         )
+
+    if cfg.wandb.name is not None: 
+        wandb.run.name = cfg.wandb.name
+        wandb.run.save() 
+
     ######################################################################
     # Torch settings.
     ######################################################################
