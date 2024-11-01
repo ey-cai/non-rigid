@@ -161,6 +161,9 @@ class Tax3dEnv(gym.Env):
     def reset(self,
               deform_transform = {}, rigid_transform = {},
               deform_params = {}, rigid_params = {}):
+        
+        # TODO: sanity check on transforms?
+
         self.stepnum = 0
         self.rigid_pcd = None
         self.episode_reward = 0.0

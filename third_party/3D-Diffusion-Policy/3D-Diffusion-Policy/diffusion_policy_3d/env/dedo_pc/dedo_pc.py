@@ -124,7 +124,6 @@ class DedoEnv:
 
     def get_obs(self):
         obs = self.env.get_obs()
-
         action_pcd = obs['action_pcd']
         anchor_pcd = obs['anchor_pcd']
 

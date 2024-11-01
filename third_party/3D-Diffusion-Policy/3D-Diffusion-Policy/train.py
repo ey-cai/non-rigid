@@ -405,7 +405,6 @@ class TrainDP3Workspace:
         val_dataset = DedoDataset(dataset_dir + "/val_tax3d")
         val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
 
-
         # load the latest checkpoint
 
         cfg = copy.deepcopy(self.cfg)

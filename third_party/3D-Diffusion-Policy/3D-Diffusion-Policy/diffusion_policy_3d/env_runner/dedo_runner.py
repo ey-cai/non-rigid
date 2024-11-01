@@ -118,7 +118,6 @@ class DedoRunner(BaseRunner):
                     obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
                     action_dict = policy.predict_action(obs_dict_input)
 
-
                 # device transfer
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
@@ -154,21 +153,8 @@ class DedoRunner(BaseRunner):
         device = policy.device
         dtype = policy.dtype
         env = self.env
-
-        ##################################################
-        # SOME REALLY HACKY PRE-PROCESSING STUFF
-        ##################################################
-
-        # still determining right amount of steps for episode
         output_save_dir = os.path.join(self.output_dir, dataset_name)
-        # output_save_dir = os.path.join(self.output_dir, f"{dataset_name}_200_original_gains")
-        # self.env.env.env.max_episode_len = 200
 
-        # set environment to randomize cloth color
-
-        ##################################################
-        # END OF REALLY HACKY PRE-PROCESSING STUFF
-        ##################################################
 
         # creating directory for outputs
         if os.path.exists(output_save_dir):
@@ -186,24 +172,19 @@ class DedoRunner(BaseRunner):
             desc=f"DEDO {self.task_name} Env", leave=False,
             mininterval=self.tqdm_interval_sec,
         )
-
-        # for id in tqdm.tqdm(
-        #     range(len(dataset)),
-        #     desc=f"DEDO {self.task_name} Env", leave=False,
-        #     mininterval=self.tqdm_interval_sec,
-        # ):
         for id in pbar:
             pbar.set_description(f"DEDO {self.task_name} Env ({num_successes})")
             # get rot, trans, deform params
             demo = dataset[id]
-            rot = demo['rot']
-            trans = demo['trans']
             deform_params = demo['deform_params'][()]
+            rigid_transform = {
+                'rotation': demo['rot'],
+                'translation': demo['trans'],
+            }
 
             obs = env.reset(
-                rigid_rot=rot,
-                rigid_trans=trans,
                 deform_params=deform_params,
+                rigid_transform=rigid_transform,
             )
             policy.reset()
 
@@ -232,7 +213,6 @@ class DedoRunner(BaseRunner):
                         obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
                         obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
                         action_dict = policy.predict_action(obs_dict_input)
-
                 # device transfer
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
