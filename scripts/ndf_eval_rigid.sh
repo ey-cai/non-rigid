@@ -48,6 +48,9 @@ python scripts/eval_rigid.py \
 
 <<COMMENT
 
+# example: 
+./scripts/ndf_eval_rigid.sh 0 cross_flow_relative kxl3gt4o wandb.online=True wandb.name=cfr_eval dataset.data_dir=/home/lyuxinghe/non-rigid/datasets/ndf/mugplace/
+
 # scene flow model - no object-centric processing
 if [ $MODEL_TYPE == "scene_flow" ]; then
   echo "Evaluating scene flow model at checkpoint $CHECKPOINT with command: $COMMAND."

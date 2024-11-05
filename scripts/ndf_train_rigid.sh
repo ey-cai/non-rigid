@@ -47,6 +47,9 @@ WANDB_MODE=$WANDB_MODE python scripts/train_diff.py \
 
 <<COMMENT
 
+# example
+./scripts/ndf_train_rigid.sh 0 cross_flow_relative offline wandb.name=cfr dataset.data_dir=/home/lyuxinghe/non-rigid/datasets/ndf/mugplace/
+
 # scene flow model - no object centric processing
 if [ $MODEL_TYPE == "scene_flow" ]; then
   echo "Training scene flow model with command: $COMMAND."

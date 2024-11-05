@@ -90,13 +90,15 @@ def eval_precision(stage, dataloader, model, device, num_trials, cfg):
         goal_world = batch["pc"][:, :, :3]
         
         # fix scaling for diffusion
-        pred_world = pred_world / cfg.dataset.pcd_scale_factor
-        goal_world = goal_world / cfg.dataset.pcd_scale_factor
+        pred_world_scaled = pred_world / cfg.dataset.pcd_scale_factor
+        goal_world_scaled = goal_world / cfg.dataset.pcd_scale_factor
+        #pred_world_scaled = pred_world
+        #goal_world_scaled = goal_world
 
-        mean_rmse = pcd_rmse(pred_world, goal_world).mean().cpu().item()
+        mean_rmse = pcd_rmse(pred_world_scaled, goal_world_scaled).mean().cpu().item()
 
-        gt_action_centroid = goal_world.mean(dim=1)
-        pred_action_centroid = pred_world.mean(dim=1)
+        gt_action_centroid = goal_world_scaled.mean(dim=1)
+        pred_action_centroid = pred_world_scaled.mean(dim=1)
 
         t_err_centroid = torch.norm(gt_action_centroid - pred_action_centroid, dim=1).mean().cpu().item()
  
@@ -146,9 +148,9 @@ def main(cfg):
             ),
         )
 
-    if cfg.wandb.name is not None: 
-        wandb.run.name = cfg.wandb.name
-        wandb.run.save() 
+        if cfg.wandb.name is not None: 
+            wandb.run.name = cfg.wandb.name
+            wandb.run.save() 
 
     ######################################################################
     # Torch settings.
