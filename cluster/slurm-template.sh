@@ -11,13 +11,15 @@ ${GIVEN_NODE}
 #SBATCH --exclusive
 ### Give all resources to a single Ray task, ray can manage the resources internally
 #SBATCH --ntasks-per-node=1
+### I want at least 90GB of memory per node
+########################## # SBATCH --mem=90G
 ### Currently we're overriding the number of GPUs per node in the exec below. This is a hack.
 ### Normally, we would set this to the number of GPUs per node, esp. if we have a cluster
 ### with homogeneous nodes.
 #           #SBATCH --gres=gpu:${NUM_GPUS_PER_NODE}
 #SBATCH --gres=gpu:1
 ### Exclude the following nodes
-#   # SBATCH --exclude=compute-0-19,compute-0-21,compute-0-23,compute-0-25,compute-0-27
+#SBATCH --exclude=compute-0-19,compute-0-21,compute-0-23,compute-0-25,compute-0-27
 
 # Load modules or your own conda environment here
 # module load pytorch/v1.4.0-gpu
@@ -35,7 +37,7 @@ project_name=non_rigid
 scs_username=baeisner
 
 # Get the branch name.
-root_dir=$HOME/code/${project_name}
+root_dir=$HOME/code/non-rigid
 
 # Compute a good tag for the image, which will be <dockerhub_username>/<project_name>:<branch-name>-scratch.
 sanitized_branch_name=$(${root_dir}/cluster/sanitize_branch_name.bash)
@@ -94,10 +96,10 @@ echo "CUDA_VISIBLE_DEVICES: $cuda_devices"
 # With singularity. Quite hacky that we have to use bash here.
 srun --nodes=1 --ntasks=1 -w "$node_1" \
     bash -c "CUDA_VISIBLE_DEVICES=$cuda_devices singularity exec \
-  -B $root_dir:/opt/rpad/code \
-  --pwd /opt/rpad/code \
-  --nv ${sif_name} \
-  ray start --head --node-ip-address="$ip" --port=$port --redis-password="$redis_password" --block --num-gpus=$num_gpus" &
+    -B $root_dir:/opt/rpad/code/non-rigid \
+    --pwd /opt/rpad/code/non-rigid \
+    --nv ${sif_name} \
+    ray start --head --node-ip-address="$ip" --port=$port --redis-password="$redis_password" --block --num-gpus=$num_gpus" &
 
 sleep 10
 
@@ -117,8 +119,8 @@ for ((i = 1; i <= worker_num; i++)); do
 
     srun --nodes=1 --ntasks=1 -w "$node_i" \
         bash -c "CUDA_VISIBLE_DEVICES=$cuda_devices singularity exec \
-    -B $root_dir:/opt/rpad/code \
-    --pwd /opt/rpad/code \
+    -B $root_dir:/opt/rpad/code/non-rigid \
+    --pwd /opt/rpad/code/non-rigid \
     --nv ${sif_name} \
     ray start --address "$ip_head" --redis-password="$redis_password" --block --num-gpus=$num_gpus" &
     sleep 5
@@ -135,8 +137,8 @@ echo "Then open a browser and go to http://localhost:8265"
 
 # ===== Call your code below =====
 singularity exec \
-    -B $root_dir:/opt/rpad/code \
-    --pwd /opt/rpad/code \
+    -B $root_dir:/opt/rpad/code/non-rigid \
+    --pwd /opt/rpad/code/non-rigid \
     --nv \
     ${sif_name} \
     ${COMMAND_PLACEHOLDER}

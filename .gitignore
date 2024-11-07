@@ -387,3 +387,4 @@ wandb_artifacts/
 logs/
 
 .singularity_images/
+.slurm_logs/
