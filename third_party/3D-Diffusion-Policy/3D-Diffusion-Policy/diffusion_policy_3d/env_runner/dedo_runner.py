@@ -35,10 +35,12 @@ class DedoRunner(BaseRunner):
                  viz=False,
                  control_type='position', # position or velocity
                  tax3d=False,
+                 tax3d_pred=False,
                  ):
         super().__init__(output_dir)
         self.task_name = task_name
         self.tax3d = tax3d
+        self.use_goal_pred = tax3d_pred
         self.vid_speed = 3
         self.diffusion_gif_speed = 2
 
@@ -189,7 +191,10 @@ class DedoRunner(BaseRunner):
             rot = demo['rot']
             trans = demo['trans']
             deform_params = demo['deform_params'][()]
-            goal_pc = demo['action_pc'] + demo['flow']
+            if self.use_goal_pred:
+                goal_pc = demo['tax3d']
+            else:
+                goal_pc = demo['action_pc'] + demo['flow']
             goal_pc = torch.from_numpy(goal_pc).to(device=device)
 
             if goal_pc.shape[0] < 625:

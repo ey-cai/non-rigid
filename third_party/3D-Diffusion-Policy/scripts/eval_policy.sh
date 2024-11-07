@@ -22,6 +22,7 @@ version=${8}
 use_onehot=${9}
 use_flow=${10}
 extractor_mode=${11}
+use_tax3d_pred=${12}
 
 
 cd 3D-Diffusion-Policy
@@ -42,7 +43,8 @@ python eval.py --config-name=${config_name}.yaml \
                             policy.pointcloud_encoder_cfg.use_goal_pc=${use_goal_pc} \
                             policy.pointnet_type=${pointnet_type} \
                             policy.pointcloud_encoder_cfg.use_onehot=${use_onehot} \
-                            policy.pointcloud_encoder_cfg.use_flow=${use_flow}
+                            policy.pointcloud_encoder_cfg.use_flow=${use_flow} \
+                            task.env_runner.tax3d_pred=${use_tax3d_pred}
 
 
 

@@ -23,6 +23,7 @@ env_runner:
   task_name: proccloth
   viz: False
   control_type: position
+  tax3d_pred: False
 
 inference:
   seed: 1
@@ -36,7 +37,7 @@ dataset:
   # TODO: change this to be a directory, and load the val and val ood from their separate files
 
 
-  root_dir: /home/yingyuan/non-rigid/datasets/rand_anchor_pose_new_flow
+  root_dir: /home/yingyuan/non-rigid/datasets/eric_flow # rand_anchor_pose_new_flow_noz
   # root_dir: ~/datasets/nrp/ProcCloth
   # root_dir: ~/Documents/data
   # root_dir: ~/Documents/data/tax3d

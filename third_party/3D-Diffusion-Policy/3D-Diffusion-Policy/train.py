@@ -405,9 +405,10 @@ class TrainDP3Workspace:
                 demo = np.load(f"{self.dir}/demo_{index}.npz", allow_pickle=True)
                 return demo
 
-        train_dataset = DedoDataset(dataset_dir + "/train_tax3d")
-        val_dataset = DedoDataset(dataset_dir + "/val_tax3d")
-        val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
+        print(dataset_dir)
+        train_dataset = DedoDataset(dataset_dir + "/train_tax3d_with_pred")
+        val_dataset = DedoDataset(dataset_dir + "/val_tax3d_with_pred")
+        val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d_with_pred")
 
 
         # load the latest checkpoint
@@ -427,10 +428,11 @@ class TrainDP3Workspace:
             self.load_checkpoint(path=lastest_ckpt_path)
 
         # configure env
+        self.use_goal_pred = cfg.task.env_runner.tax3d_pred
         env_runner: BaseRunner
         env_runner = hydra.utils.instantiate(
             cfg.task.env_runner,
-            output_dir=self.output_dir, viz=True)
+            output_dir=self.output_dir, viz=True, tax3d_pred=self.use_goal_pred)
         assert isinstance(env_runner, BaseRunner)
         policy = self.model
         if cfg.training.use_ema:

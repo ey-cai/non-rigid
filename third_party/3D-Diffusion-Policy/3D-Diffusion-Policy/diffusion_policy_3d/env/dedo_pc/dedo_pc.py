@@ -50,8 +50,8 @@ class DedoEnv:
         args.rollout_vid = True
         args.pcd = True
         args.logdir = 'rendered'
-        args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
-        # args.cam_config_path = "/home/yingyuan/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json"
+        # args.cam_config_path = '/home/eycai/Documents/dedo/dedo/utils/cam_configs/camview_0.json'
+        args.cam_config_path = "/home/yingyuan/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json"
         args.viz = viz
         args_postprocess(args)
 
@@ -144,11 +144,14 @@ class DedoEnv:
                 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
-            # action_pcd = downsample_with_fps(action_pcd, int(self.num_points / 2))
             pad = np.zeros((625 - action_pcd.shape[0], 3))
             pad[:, :3] = action_pcd[0]
             action_pcd = np.concatenate([action_pcd, pad], axis=0)
             anchor_pcd = downsample_with_fps(anchor_pcd, 625)
+
+            # action_pcd = downsample_with_fps(action_pcd, 512)
+            # anchor_pcd = downsample_with_fps(anchor_pcd, 512)
+
             point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
             obs_dict = {
                 'point_cloud': point_cloud,
