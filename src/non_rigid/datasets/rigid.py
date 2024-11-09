@@ -410,6 +410,10 @@ class NDFDataset(data.Dataset):
                     "plane_standoff": self.dataset_cfg.action_plane_standoff
                     * self.dataset_cfg.pcd_scale_factor,
                 },
+                random_drop_param={
+                    "random_drop_probability": self.dataset_cfg.action_random_drop_probability,
+                    "random_drop_percent": self.dataset_cfg.action_random_drop_percent,
+                },
             )
             points_anchor = maybe_apply_augmentations(
                 points_anchor,
@@ -424,7 +428,17 @@ class NDFDataset(data.Dataset):
                     "plane_standoff": self.dataset_cfg.anchor_plane_standoff
                     * self.dataset_cfg.pcd_scale_factor,
                 },
+                random_drop_param={
+                    "random_drop_probability": self.dataset_cfg.anchor_random_drop_probability,
+                    "random_drop_percent": self.dataset_cfg.anchor_random_drop_percent,
+                },
             )
+            
+            # apply random scale uniformly to actiona and anchor pcd
+            if torch.rand(1) < self.dataset_cfg.random_pcd_scaling_probability:
+                random_scale_percent = np.random.uniform(self.dataset_cfg.random_pcd_scaling_min, self.dataset_cfg.random_pcd_scaling_max)
+                points_action = points_action * random_scale_percent
+                points_anchor = points_anchor * random_scale_percent
 
         if self.type == "val" and self.dataset_cfg.val_use_defaults:
             # Downsample the point clouds

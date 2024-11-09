@@ -64,12 +64,42 @@ def plane_occlusion(
         return points[mask], mask
     return points[mask]
 
+def random_drop(
+    points: torch.Tensor, percent: float = 0.1, return_mask: bool = False
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Randomly drop percentage of the input point cloud with percentage `percent`.
+
+    Args:
+        points: [N, 3] tensor of points
+        percent: percentage of points of the point cloud to be dropped
+        return_mask: if True, returns the mask of the occluded points
+
+    Returns:
+        points: [N', 3] tensor of points
+        mask: [N] tensor of bools indicating which points were occluded
+    """
+    percent = max(0.0, min(1.0, percent))
+    
+    num_points = points.shape[0]
+    num_drop = int(num_points * percent)
+    
+    drop_indices = torch.randperm(num_points)[:num_drop]
+    
+    mask = torch.ones(num_points, dtype=torch.bool)
+    mask[drop_indices] = False
+    
+    if return_mask:
+        return points[mask], mask
+    return points[mask]
+
 
 def maybe_apply_augmentations(
     points: torch.Tensor,
     min_num_points: int,
     ball_occlusion_param: Dict[str, Any],
     plane_occlusion_param: Dict[str, Any],
+    random_drop_param: Dict[str, Any],
 ) -> torch.Tensor:
     """
     Potentially applies augmentations to the point cloud, considering the dataset configuration e.g. min. number of points.
@@ -79,6 +109,7 @@ def maybe_apply_augmentations(
         min_num_points: minimum number of points required
         ball_occlusion_param: parameters for ball occlusion
         plane_occlusion_param: parameters for plane occlusion
+        random_drop_param: parameters for random drop
 
     Returns:
         points: [N', 3] tensor of points
@@ -101,6 +132,16 @@ def maybe_apply_augmentations(
         temp_points = plane_occlusion(
             new_points,
             stand_off=plane_occlusion_param["plane_standoff"],
+            return_mask=False,
+        )
+        if temp_points.shape[0] > min_num_points:
+            new_points = temp_points
+
+    # Maybe apply random drops
+    if torch.rand(1) < random_drop_param["random_drop_probability"]:
+        temp_points = random_drop(
+            new_points,
+            percent=random_drop_param["random_drop_percent"],
             return_mask=False,
         )
         if temp_points.shape[0] > min_num_points:
