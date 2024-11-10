@@ -199,11 +199,7 @@ class DedoDataset(BaseDataset):
                     point_cloud = torch.cat([action_pcd, anchor_pcd], dim=1)
 
             elif self.cloth_geometry == 'single':
-                if self.goal_conditioning == 'ground_truth':
-                    point_cloud = torch_data['obs']['point_cloud']
-
-                elif self.goal_conditioning == 'none':
-                    point_cloud = torch_data['obs']['point_cloud'][:, :1160, :]
+                point_cloud = torch_data['obs']['point_cloud']
 
             agent_pos = torch_data['obs']['agent_pos']
             
@@ -211,7 +207,7 @@ class DedoDataset(BaseDataset):
 
             # Entire Scene
             if self.centroid == 'entire_scene':
-                point_cloud_mean = point_cloud.mean(dim=[0, 1], keepdim=True)
+                point_cloud_mean = point_cloud.mean(dim=[0,1], keepdim=True)
             elif self.centroid == 'cloth':
                 point_cloud_mean = action_pcd.mean(dim=[0,1], keepdim=True)
 

@@ -5,7 +5,8 @@ name: tax3d
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
-exp_name: "debug"
+exp_name: "kr93ivph" # Singlecloth
+# exp_name: "mfm1i73c" # Multicloth
 
 training:
   device: "cuda:0"

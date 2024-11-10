@@ -5,13 +5,13 @@ task_name: dedo
 shape_meta: &shape_meta
   obs:
     point_cloud:
-      shape: [1024, 3]
+      shape: [1250, 3]
       type: point_cloud
     agent_pos:
       shape: [12]
       type: low_dim
   action:
-    shape: [6]
+    shape: [48]
 
 env_runner:
   _target_: diffusion_policy_3d.env_runner.dedo_runner.DedoRunner

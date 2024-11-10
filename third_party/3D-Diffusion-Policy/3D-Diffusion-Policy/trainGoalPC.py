@@ -620,21 +620,40 @@ class EvalTAX3DWorkspace:
         # don't need to worry about ema, optimizer, global step, or epoch
 
 
+        # checkpoint_run_id = cfg.exp_name.split("-")[-1]
+        # project_dir = f"{cfg.logging.entity}/{cfg.logging.project}"
+        # # grabbing config from wandb
+        # api = wandb.Api()
+        # run_config = api.run(f"{project_dir}/{checkpoint_run_id}").config
+        # self.run_config = OmegaConf.create(run_config)
+
+
+        # # grabbing checkpoint reference from exp_name
+        # checkpoint_reference = f"{project_dir}/model-{checkpoint_run_id}:v0"
+        # artifact_dir = cfg.checkpoint.artifact_dir
+        # artifact = api.artifact(checkpoint_reference, type='model')
+        # ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+        # breakpoint()
+        # self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_config)
+
+
+        # load default model and dataset config from TAX3D - this ensures config structure is up-to-date
         checkpoint_run_id = cfg.exp_name.split("-")[-1]
+        tax3d_cfg_dir = pathlib.Path(__file__).parent.parent.parent.parent.resolve() / 'configs'
+        dataset_cfg = OmegaConf.load(tax3d_cfg_dir / 'dataset' / 'proc_cloth.yaml')
+        model_cfg = OmegaConf.load(tax3d_cfg_dir / 'model' / 'df_base.yaml')
+        base_cfg = OmegaConf.create({'mode': 'eval', 'dataset': dataset_cfg, 'model': model_cfg})
+
+        # TODO: eventually, may need to read task overrides here? e.g. if we want to eval 
+        # on a different dataset than what we trained on
+        self.run_cfg = load_checkpoint_config_from_wandb(base_cfg, [], cfg.logging.entity, cfg.logging.project, checkpoint_run_id)
+        
+        # also grabbing checkpoint file
         project_dir = f"{cfg.logging.entity}/{cfg.logging.project}"
-        # grabbing config from wandb
-        api = wandb.Api()
-        run_config = api.run(f"{project_dir}/{checkpoint_run_id}").config
-        self.run_config = OmegaConf.create(run_config)
-
-
-        # grabbing checkpoint reference from exp_name
         checkpoint_reference = f"{project_dir}/model-{checkpoint_run_id}:v0"
-        artifact_dir = cfg.checkpoint.artifact_dir
-        artifact = api.artifact(checkpoint_reference, type='model')
-        ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
-        breakpoint()
-        self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_config)
+        artifact = wandb.Api().artifact(checkpoint_reference, type='model')
+        ckpt_file = artifact.get_path("model.ckpt").download(root=cfg.checkpoint.artifact_dir)
+        self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_cfg)
 
     def eval_datasets(self):
 

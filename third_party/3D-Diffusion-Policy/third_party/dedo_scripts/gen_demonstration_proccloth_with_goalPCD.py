@@ -12,14 +12,11 @@ from tqdm import tqdm
 import zarr
 from termcolor import cprint
 from omegaconf import OmegaConf
-from dedo.utils.args import get_args, args_postprocess
+from dedo.utils.args import get_args, args_postprocess, CAM_CONFIG_DIR
 from dedo.envs import DeformEnvTAX3D
 from trainGoalPC import EvalTAX3DWorkspace
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from PIL import Image
-
-
-OmegaConf.register_new_resolver("eval", eval, replace=True)
     
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -57,12 +54,7 @@ def downsample_with_fps(points: np.ndarray, num_points: int = 512):
     points = points[sampled_indices.squeeze(0).cpu().numpy()]
     return points
 
-@hydra.main(
-    version_base=None,
-    config_path=str(pathlib.Path(__file__).parent.parent.parent.joinpath(
-        '3D-Diffusion-Policy', 'diffusion_policy_3d', 'config'))
-)
-def main(cfg):
+def main():
     ###############################
     # parse DP3 demo args
     ###############################
@@ -78,10 +70,10 @@ def main(cfg):
     #save_tax3d = args.save_tax3d
     #save_rollout_vids = args.save_rollout_vids
 
-    random_cloth_geometry = True
+    random_cloth_geometry = args.random_cloth_geometry
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
-    random_anchor_pose = True
+    random_anchor_pose = args.random_anchor_pose
     cloth_hole = args.cloth_hole
     tag = args.tag
 
@@ -132,7 +124,7 @@ def main(cfg):
     dedo_args.rollout_vid = True
     dedo_args.pcd = True
     dedo_args.logdir = 'rendered'
-    dedo_args.cam_config_path = '/home/ktsim/Projects/non-rigid/third_party/dedo/dedo/utils/cam_configs/camview_0.json'
+    dedo_args.cam_config_path = f"{CAM_CONFIG_DIR}/camview_0.json"
     dedo_args.viz = True
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)
@@ -181,6 +173,7 @@ def main(cfg):
     total_count = 0
 
     # Configure Tax3D inference
+    cfg = OmegaConf.load('/home/ktsim/non-rigid/third_party/3D-Diffusion-Policy/3D-Diffusion-Policy/diffusion_policy_3d/config/tax3d.yaml')
     policy = EvalTAX3DWorkspace(cfg).model
     policy.eval()
     policy.cuda()
@@ -307,7 +300,8 @@ def main(cfg):
                 # rollout the policy for this hole
                 while True:
                     # get action
-                    action = env.pseudo_expert_force(hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
+                    # action = env.pseudo_expert_force(hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
+                    action = env.pseudo_expert_action(hole, rigid_rot=rigid_rot, rigid_trans=rigid_trans)
                     total_count_sub += 1
 
                     # downsample point clouds for demos (not tax3d demos)
@@ -316,26 +310,25 @@ def main(cfg):
                     gripper_state = obs['gripper_state']
 
                     cloth_size = obs_action_pcd.shape[0]
-                    # if obs_action_pcd.shape[0] > 512:
-                    #     obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
-                    if obs_action_pcd.shape[0] < action_num_points:
+                    if action_num_points == 625 and random_cloth_geometry:
+                        # print('Padding action point cloud with zeroes')
                         pad = np.zeros((action_num_points - obs_action_pcd.shape[0], 3))
                         pad[:, :3] = obs_action_pcd[0]
                         obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
 
-                    if obs_anchor_pcd.shape[0] > anchor_num_points:
-                        obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
+                    obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
 
                     # update episode data
                     action_pcd_arrays_sub.append(obs_action_pcd)
                     anchor_pcd_arrays_sub.append(obs_anchor_pcd)
                     state_arrays_sub.append(gripper_state)
-                    action_arrays_sub.append(action)
                     cloth_size_arrays_sub.append([cloth_size])
 
                     # step environment
-                    obs, reward, done, info = env.step(action, action_type='force')
-           
+                    obs, reward, done, info = env.step(action, action_type='position')
+                    # breakpoint()
+                    action_arrays_sub.append(info['force'])
+
                     reward_sum += reward
                     if done:
                         success = info['is_success']
@@ -385,13 +378,21 @@ def main(cfg):
                 # also adding goal pcd from ground truth and tax3d
                 len_episode = len(action_pcd_arrays_sub)
                 ground_truth_subarray = np.tile(np.expand_dims(obs["action_pcd"], axis=0), (len_episode, 1, 1))
-                pad_gt = np.tile(ground_truth_subarray[:, 0].reshape(-1, 1, 3), (1, action_num_points - ground_truth_subarray.shape[1], 1))
-                ground_truth_subarray = np.concatenate([ground_truth_subarray, pad_gt], axis=1)
+                
+                if obs_action_pcd.shape[0] == 625 and random_cloth_geometry:
+                    # print('Padding ground truth with zeroes')
+                    pad_gt = np.tile(ground_truth_subarray[:, 0].reshape(-1, 1, 3), (1, action_num_points - ground_truth_subarray.shape[1], 1))
+                    ground_truth_subarray = np.concatenate([ground_truth_subarray, pad_gt], axis=1)
+                
                 ground_truth_arrays.extend(ground_truth_subarray)
 
                 tax3d_subarray = np.tile(tax3D_goalPCD, (len_episode, 1, 1))
-                pad_tax3d = np.tile(tax3d_subarray[:, 0].reshape(-1, 1, 3), (1, action_num_points - tax3d_subarray.shape[1], 1))
-                tax3d_subarray = np.concatenate([tax3d_subarray, pad_tax3d], axis=1)
+
+                if obs_action_pcd.shape[0] == 625:
+                    # print('Padding tax3d with zeroes')
+                    pad_tax3d = np.tile(tax3d_subarray[:, 0].reshape(-1, 1, 3), (1, action_num_points - tax3d_subarray.shape[1], 1))
+                    tax3d_subarray = np.concatenate([tax3d_subarray, pad_tax3d], axis=1)
+                
                 tax3d_arrays.extend(tax3d_subarray)
 
                 # save tax3d demos and rollout vids
@@ -425,15 +426,19 @@ def main(cfg):
     # save point cloud and action arrays into data, and episode ends arrays into meta
     action_pcd_arrays = np.stack(action_pcd_arrays, axis=0)
     anchor_pcd_arrays = np.stack(anchor_pcd_arrays, axis=0)
+
     state_arrays = np.stack(state_arrays, axis=0)
+    
     action_arrays = np.stack(action_arrays, axis=0)
+
     ground_truth_arrays = np.stack(ground_truth_arrays, axis=0)
+
     tax3d_arrays = np.stack(tax3d_arrays, axis=0)
+                           
     cloth_size_arrays = np.stack(cloth_size_arrays, axis=0)
-    episode_ends_arrays = np.array(episode_ends_arrays)
 
     # as an additional step, create point clouds that combine action and anchor
-    point_cloud_arrays = np.concatenate([action_pcd_arrays, anchor_pcd_arrays, ground_truth_arrays], axis=1)
+    point_cloud_arrays = np.concatenate([action_pcd_arrays, anchor_pcd_arrays], axis=1)
 
 
     compressor = zarr.Blosc(cname='zstd', clevel=3, shuffle=1)

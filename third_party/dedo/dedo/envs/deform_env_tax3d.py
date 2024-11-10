@@ -558,22 +558,26 @@ class DeformEnvTAX3D(gym.Env):
         #     assert self.action_space.contains(action)
             # assert ((np.abs(action) <= 1.0).all()), 'action must be in [-1, 1]'
         action = np.array(action)
-        action = action.reshape(self.num_anchors, -1)
-
+        action = action.reshape(8, self.num_anchors, -1)
         # Step through physics simulation.
+        all_force = []
         for sim_step in range(self.args.sim_steps_per_action):
             # self.do_action(action, unscaled)
             # self.do_action2(action, unscaled)
             if action_type == 'velocity':
                 self.do_action_velocity(action, unscaled)
             elif action_type == 'position':
-                forces = self.do_action_position(action, unscaled, tax3d)
+                record_forces = self.do_action_position(action, unscaled, tax3d)
+                all_force.append(record_forces)
             elif action_type == 'force':
                 for i in range(self.num_anchors):
-                    self.sim.applyExternalForce(self.anchor_ids[i], -1, action[i], [0, 0, 0], pybullet.LINK_FRAME)
+                    self.sim.applyExternalForce(self.anchor_ids[i], -1, action[sim_step][i], [0, 0, 0], pybullet.LINK_FRAME)
             else:
                 raise ValueError(f'Unknown action type {action_type}')
             self.sim.stepSimulation()
+        
+        all_force = np.array(all_force)
+        all_force = all_force.flatten()
 
         # Get next obs, reward, done.
         next_obs = self.get_obs()
@@ -612,9 +616,10 @@ class DeformEnvTAX3D(gym.Env):
                 info['color_key'] = self.color_key
                 info['viewmat'] = np.array(self._cam_viewmat)
                 info['pre_release_frame'] = pre_release_frame
+                info['force'] = all_force
 
         else:
-            info = {}
+            info = {'force': all_force}
 
         self.episode_reward += reward  # update episode reward
 
@@ -637,13 +642,16 @@ class DeformEnvTAX3D(gym.Env):
 
     def do_action_position(self, action, unscaled, tax3d):
         # uses basic proportional position control instead
+        record_forces = []
         for i in range(self.num_anchors):
-            command_anchor_position(
+            force = command_anchor_position(
                 self.sim, self.anchor_ids[i],
                 action[i],
                 tax3d=tax3d,
                 task='proccloth'
             )
+            record_forces.append(force)
+        return record_forces
 
     def make_final_steps(self):
         # We do no explicitly release the anchors, since this can create a jerk
@@ -767,24 +775,24 @@ class DeformEnvTAX3D(gym.Env):
             grip_obs = np.clip(
                 grip_obs, -1.0*self.gripper_lims, self.gripper_lims)
             done = True
-        # TODO: TAX3D environment should not need to return the image
-        if self.args.cam_resolution <= 0:
-            obs = grip_obs
-        else:
-            obs = self.render(mode='rgb_array', width=self.args.cam_resolution,
-                              height=self.args.cam_resolution)
-            if self.args.uint8_pixels:
-                obs = obs.astype(np.uint8)  # already in [0,255]
-            else:
-                obs = obs.astype(np.float32)/255.0  # to [0,1]
-                obs = np.clip(obs, 0, 1)
-        if self.args.flat_obs:
-            obs = obs.reshape(-1)
-        atol = 0.0001
-        if ((obs < self.observation_space.low-atol).any() or
-            (obs > self.observation_space.high+atol).any()):
-            print('obs', obs.shape, f'{np.min(obs):e}, n{np.max(obs):e}')
-            assert self.observation_space.contains(obs)
+        # # TODO: TAX3D environment should not need to return the image
+        # if self.args.cam_resolution <= 0:
+        #     obs = grip_obs
+        # else:
+        #     obs = self.render(mode='rgb_array', width=self.args.cam_resolution,
+        #                       height=self.args.cam_resolution)
+        #     if self.args.uint8_pixels:
+        #         obs = obs.astype(np.uint8)  # already in [0,255]
+        #     else:
+        #         obs = obs.astype(np.float32)/255.0  # to [0,1]
+        #         obs = np.clip(obs, 0, 1)
+        # if self.args.flat_obs:
+        #     obs = obs.reshape(-1)
+        # atol = 0.0001
+        # if ((obs < self.observation_space.low-atol).any() or
+        #     (obs > self.observation_space.high+atol).any()):
+        #     print('obs', obs.shape, f'{np.min(obs):e}, n{np.max(obs):e}')
+        #     assert self.observation_space.contains(obs)
 
         # --- Getting object-centric point clouds ---
 
@@ -795,7 +803,7 @@ class DeformEnvTAX3D(gym.Env):
   
 
         obs_dict = {
-            'img': obs, # TODO: this could technically include gripper state - ignored either way
+            # 'img': obs, # TODO: this could technically include gripper state - ignored either way
             'gripper_state': grip_obs,
             'done': done,
             'action_pcd': action_pcd,
@@ -883,12 +891,7 @@ class DeformEnvTAX3D(gym.Env):
             point = Point(goal_pos[:2])
             polygon_checks.append(polygon.contains(point))
         return np.array(polygon_checks)
-
-
-
-
-
-
+    
     def render(self, mode='rgb_array', width=300, height=300):
         assert (mode == 'rgb_array')
         w, h, rgba_px, _, _ = self.sim.getCameraImage(
