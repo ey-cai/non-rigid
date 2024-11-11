@@ -123,7 +123,7 @@ def command_anchor_position(sim, anchor_bullet_id, tgt_pos, tax3d=False, task='p
     # print(vel_diff, pos_diff, force)
     sim.applyExternalForce(
         anchor_bullet_id, -1, force.tolist(), [0, 0, 0], pybullet.LINK_FRAME)
-    return raw_force
+    return force
 
     # TODO: maybe try not flooring if the mag is small enough - i.e. don't have crazy forces when it's super close
     # pos_diff_mag = np.linalg.norm(pos_diff)

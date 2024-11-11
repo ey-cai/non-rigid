@@ -146,16 +146,6 @@ def main():
     kwargs = {'args': dedo_args}
     env = gym.make(dedo_args.env, **kwargs)
 
-
-    # settings seed based on split
-    if split == 'train':
-        seed = 0
-    elif split == 'val':
-        seed = 10
-    elif split == 'val_ood':
-        seed = 20
-    env.seed(seed)
-
     ###############################
     # run episodes
     ###############################
@@ -173,10 +163,19 @@ def main():
     total_count = 0
 
     # Configure Tax3D inference
-    cfg = OmegaConf.load('/home/ktsim/non-rigid/third_party/3D-Diffusion-Policy/3D-Diffusion-Policy/diffusion_policy_3d/config/tax3d.yaml')
+    cfg = OmegaConf.load('/home/ktsim/Projects/non-rigid/third_party/3D-Diffusion-Policy/3D-Diffusion-Policy/diffusion_policy_3d/config/tax3d.yaml')
     policy = EvalTAX3DWorkspace(cfg).model
     policy.eval()
     policy.cuda()
+
+    # settings seed based on split
+    if split == 'train':
+        seed = 0
+    elif split == 'val':
+        seed = 10
+    elif split == 'val_ood':
+        seed = 20
+    env.seed(seed)
 
     with tqdm(total=num_episodes) as pbar:
         num_success = 0

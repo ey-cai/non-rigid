@@ -557,9 +557,16 @@ class DeformEnvTAX3D(gym.Env):
         # Only applies to position vector
         #     assert self.action_space.contains(action)
             # assert ((np.abs(action) <= 1.0).all()), 'action must be in [-1, 1]'
+
         action = np.array(action)
-        action = action.reshape(8, self.num_anchors, -1)
+
+        if action_type == 'position':
+            action = action.reshape(self.num_anchors, -1)
+        elif action_type == 'force':
+            action = action.reshape(self.num_anchors, -1)
+        
         # Step through physics simulation.
+        
         all_force = []
         for sim_step in range(self.args.sim_steps_per_action):
             # self.do_action(action, unscaled)

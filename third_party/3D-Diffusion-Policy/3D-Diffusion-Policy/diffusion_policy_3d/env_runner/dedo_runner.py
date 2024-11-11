@@ -234,7 +234,7 @@ class DedoRunner(BaseRunner):
                         bsz = obs_dict_input['point_cloud'].shape[0]
                         hor = obs_dict_input['point_cloud'].shape[1]
                         goal_pointcloud = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)     
-                        obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'], goal_pointcloud], dim=-2)
+                        obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud']], dim=-2)
                         # obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'], torch.from_numpy(np.zeros((obs_dict_input['point_cloud'].shape[0], obs_dict_input['point_cloud'].shape[1], 
                         #                                                                       1875- obs_dict_input['point_cloud'].shape[2], obs_dict_input['point_cloud'].shape[3]))).to(device=device)], dim=-2)
                         

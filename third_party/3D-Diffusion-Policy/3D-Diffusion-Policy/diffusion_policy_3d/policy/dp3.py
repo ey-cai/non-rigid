@@ -193,19 +193,25 @@ class DP3(BasePolicy):
 
         nobs = obs_dict
         # For training
-        # cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size
-        # action_pcd = nobs['action_pcd'][:, :, :cloth_size, :]
-        # anchor_pcd = nobs['anchor_pcd']
-        # ground_truth = nobs['ground_truth'][:, :, :cloth_size, :]
-        # point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=-2)
-        # point_cloud_mean = point_cloud.mean(dim=[-2, -3], keepdim=True) # Centroid of cloth
-        # nobs['point_cloud'] = point_cloud - point_cloud_mean
+
+        ## Multicloth ##
+        cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size
+        action_pcd = nobs['action_pcd'][:, :, :cloth_size, :]
+        anchor_pcd = nobs['anchor_pcd']
+        ground_truth = nobs['ground_truth'][:, :, :cloth_size, :]
+        point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=-2)
+        point_cloud_mean = point_cloud.mean(dim=[-2, -3], keepdim=True) # Centroid of cloth
+        nobs['point_cloud'] = point_cloud - point_cloud_mean
+
+        ## Singlecloth ##
+        # point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of cloth
+        # nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
 
         # For evaluating
-        point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
-        nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
-        nobs['point_cloud'] = torch.cat((nobs['point_cloud'], torch.zeros((nobs['point_cloud'].shape[0], nobs['point_cloud'].shape[1], 
-                                                                                            1875- nobs['point_cloud'].shape[2], nobs['point_cloud'].shape[3])).to(self.device)), dim=-2)
+        # point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
+        # nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        # nobs['point_cloud'] = torch.cat((nobs['point_cloud'], torch.zeros((nobs['point_cloud'].shape[0], nobs['point_cloud'].shape[1], 
+        #                                                                                     1250- nobs['point_cloud'].shape[2], nobs['point_cloud'].shape[3])).to(self.device)), dim=-2)
         
         point_cloud_mean = point_cloud_mean.squeeze(2)
         nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
@@ -270,7 +276,7 @@ class DP3(BasePolicy):
         start = To - 1
         end = start + self.n_action_steps
         action = action_pred[:,start:end]
-        
+
         # get prediction
 
 
@@ -290,10 +296,24 @@ class DP3(BasePolicy):
         # nobs = self.normalizer.normalize(batch['obs'])
         
         # Center point cloud
+
         nobs = batch['obs']
-        point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True)
-        nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+
+        ## Single Cloth ##
+        # point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True)
+        # nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        # nobs = {key: tensor.float() for key, tensor in nobs.items()}
+
+        ## Multi Cloth ##
+        cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size
+        action_pcd = nobs['action_pcd'][:, :, :cloth_size, :]
+        anchor_pcd = nobs['anchor_pcd']
+        ground_truth = nobs['ground_truth'][:, :, :cloth_size, :]
+        point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=-2)
+        point_cloud_mean = point_cloud.mean(dim=[-2, -3], keepdim=True) # Centroid of scene
+        nobs['point_cloud'] = point_cloud - point_cloud_mean
         nobs = {key: tensor.float() for key, tensor in nobs.items()}
+
         nactions = self.normalizer['action'].normalize(batch['action'])
 
         if not self.use_pc_color:
@@ -311,7 +331,6 @@ class DP3(BasePolicy):
         trajectory = trajectory.view(shape[0], shape[1], -1)
         cond_data = trajectory
         
-       
         #######################################################
         
         if self.obs_as_global_cond:
@@ -340,7 +359,6 @@ class DP3(BasePolicy):
 
         # generate impainting mask
         condition_mask = self.mask_generator(trajectory.shape)
-
         # Sample noise that we'll add to the images
         noise = torch.randn(trajectory.shape, device=trajectory.device)
 

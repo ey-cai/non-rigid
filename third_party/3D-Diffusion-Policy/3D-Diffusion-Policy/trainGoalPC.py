@@ -33,6 +33,7 @@ from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 
 from diffusion_policy_3d.policy.tax3d_goalPC import TAX3D
+from non_rigid.utils.script_utils import load_checkpoint_config_from_wandb
 
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)

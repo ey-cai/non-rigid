@@ -47,6 +47,7 @@ dataset:
   anchor_geometry: single
   anchor_pose: random
   hole: single
+  # goal_conditioning: none
   goal_conditioning: ground_truth
   centroid: entire_scene
 
