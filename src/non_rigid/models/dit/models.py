@@ -81,6 +81,8 @@ class RelativePoseEmbedder(nn.Module):
             input_size = 9
         elif rel_pose_type == "logmap":
             input_size = 6
+        elif rel_pose_type == "translation":
+            input_size = 3
         else:
             raise ValueError(f"Unknown relative pose rotation type: {rel_pose_type}")
         self.hidden_size = hidden_size
@@ -668,90 +670,7 @@ class LinearRegressionModel(nn.Module):
         return x
 
 
-### CREATING NEW DiT (unconditional) FOR POINT CLOUD INPUTS ###
-class DiT_PointCloud_Unc(nn.Module):
-    """
-    Diffusion model with a Transformer backbone - point cloud, unconditional.
-    """
-    def __init__(
-        self,
-        in_channels=3,
-        hidden_size=1152,
-        depth=28,
-        num_heads=16,
-        mlp_ratio=4.0,
-        learn_sigma=True,
-        model_cfg=None,
-    ):
-        super().__init__()
-        self.learn_sigma = learn_sigma
-        self.in_channels = in_channels
-        # self.out_channels = in_channels * 2 if learn_sigma else in_channels
-        self.out_channels = 6 if learn_sigma else 3
-        self.num_heads = num_heads
-        # x_embedder is conv1d layer instead of 2d patch embedder
-        self.x_embedder = nn.Conv1d(in_channels, hidden_size, kernel_size=1, stride=1, padding=0, bias=True)
-        # no pos_embed, or y_embedder
-        self.t_embedder = TimestepEmbedder(hidden_size)
-        self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
-        ])
-        # functionally setting patch size to 1 for a point cloud
-        self.final_layer = FinalLayer(hidden_size, 1, self.out_channels)
-        self.initialize_weights()
-
-    def initialize_weights(self):
-        # Initialize transformer layers:
-        def _basic_init(module):
-            if isinstance(module, nn.Linear):
-                torch.nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-        self.apply(_basic_init)
-
-        # Initialize x_embed like nn.Linear (instead of nn.Conv2d):
-        w = self.x_embedder.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.bias, 0)
-
-        # Initialize timestep embedding MLP:
-        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
-
-        # Zero-out adaLN modulation layers in DiT blocks:
-        for block in self.blocks:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-
-        # Zero-out output layers:
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.final_layer.linear.weight, 0)
-        nn.init.constant_(self.final_layer.linear.bias, 0)
-
-    def forward(
-            self, 
-            x: torch.Tensor, 
-            t: torch.Tensor, 
-            x0: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Forward pass of DiT.
-        x: (N, L, 3) tensor of spatial inputs (point clouds)
-        t: (N,) tensor of diffusion timesteps
-        """
-        # concat x and pos
-        x = torch.cat((x, x0), dim=1)
-        x = torch.transpose(self.x_embedder(x), -1, -2)
-        c = self.t_embedder(t)
-
-        for block in self.blocks:
-            x = block(x, c)
-        x = self.final_layer(x, c)
-        x = torch.transpose(x, -1, -2)
-        return x
-
-
+# Custom point cloud DiT for TAX3D
 class DiT_PointCloud(nn.Module):
     """
     Diffusion Transformer adapted for point cloud inputs. Uses scene-level self-attention.
@@ -877,7 +796,7 @@ class DiT_PointCloud(nn.Module):
         x = torch.transpose(x, -1, -2)
         return x
     
-
+# Custom poitn cloud DiT with cross attention for TAX3D
 class DiT_PointCloud_Cross(nn.Module):
     """
     Diffusion Transformer adapted for point cloud inputs. Uses object-centric cross attention.

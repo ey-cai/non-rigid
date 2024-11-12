@@ -7,9 +7,16 @@ in_channels: 3 # Number of input channels
 learn_sigma: True # Learn sigma for diffusion
 center_noise: False # Center noise for diffusion
 rotary: False # Use rotary embedding for diffusion
-rel_pose: False # Use relative action-anchor pose for diffusion
-rel_pose_type: quaternion # (quaternion, rotation_6d, logmap) representation for relative action-anchor pose
 
+# Model-based data processing params
+world_frame: False # world frame for scene/object
+scene_anchor: False # scene-level anchor
+rel_pose: False # Use relative action-anchor pose for diffusion
+rel_pose_type: translation # (quaternion, rotation_6d, logmap, translation) representation for relative action-anchor pose
+center_type: anchor_center # [action_center, anchor_center, scene_center, none], centers the point clouds
+action_context_center_type: center # [center, random, none], centers the action context point clouds
+
+# Encoder settings
 x_encoder: mlp # Encoder current timestep x
 y_encoder: mlp # (mlp, dgcnn) Encoder for y object (e.g. anchor pcd)
 x0_encoder: mlp # (mlp, dgcnn) Encoder for x0 object (e.g. action pcd)
