@@ -18,7 +18,7 @@ dependencies = [
   "huggingface_hub == 0.24.6",
   # "lightning == 2.0.3",
   "lightning",
-  "torch",
+  # "torch",
   "torch_cluster",
   "torch-geometric",
   "torch_scatter",
