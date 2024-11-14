@@ -29,7 +29,11 @@ jobs:
       ##############################################
 
       - name: Install torch dependencies because they are mean.
-        run: pip install -r requirements-gpu.txt
+        run: pip install --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.0.1+cu118 torchvision==0.15.2 torchaudio==2.0.2
+
+      - name: Install torch geometric dependencies.
+        run: pip install --find-links https://data.pyg.org/whl/torch-2.0.0+cu118.html pyg_lib==0.4.0 torch_scatter==2.1.2 torch_sparse==0.6.18 torch_cluster==1.6.3 torch_spline_conv==1.2.2
+
 
       - name: Install package
         run: pip install "${{ inputs.install_string }}"
