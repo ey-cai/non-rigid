@@ -28,6 +28,9 @@ jobs:
           python-version: '3.9'
       ##############################################
 
+      - name: Update setuptools.
+        run: pip install --upgrade setuptools==65.5.0
+
       - name: Install torch dependencies.
         run: pip install -r requirements-gpu.txt
 
