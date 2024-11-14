@@ -67,6 +67,32 @@ elif [ $MODEL_TYPE == "regression_point" ]; then
 
   MODEL_PARAMS="model=regression model.type=point"
   DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False"
+elif [ $MODEL_TYPE == "cross_point_relative_1" ]; then
+  echo "Training relative point model with command: $COMMAND."
+
+  MODEL_PARAMS="model=df_cross model.type=point"
+  DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False dataset.data_dir=/home/beisner/datasets/cloth10k/cloth10k dataset.train_size=1 dataset.cloth_pose=random dataset.anchor_pose=fixed"
+elif [ $MODEL_TYPE == "cross_point_relative_10" ]; then
+    echo "Training relative point model with command: $COMMAND."
+
+    MODEL_PARAMS="model=df_cross model.type=point"
+    DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False dataset.data_dir=/home/beisner/datasets/cloth10k/cloth10k dataset.train_size=10 dataset.cloth_pose=random dataset.anchor_pose=fixed"
+elif [ $MODEL_TYPE == "cross_point_relative_100" ]; then
+    echo "Training relative point model with command: $COMMAND."
+
+    MODEL_PARAMS="model=df_cross model.type=point"
+    DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False dataset.data_dir=/home/beisner/datasets/cloth10k/cloth10k dataset.train_size=100 dataset.cloth_pose=random dataset.anchor_pose=fixed"
+elif [ $MODEL_TYPE == "cross_point_relative_1000" ]; then
+    echo "Training relative point model with command: $COMMAND."
+
+    MODEL_PARAMS="model=df_cross model.type=point"
+    DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False dataset.data_dir=/home/beisner/datasets/cloth10k/cloth10k dataset.train_size=1000 dataset.cloth_pose=random dataset.anchor_pose=fixed"
+elif [ $MODEL_TYPE == "cross_point_relative_10000" ]; then
+    echo "Training relative point model with command: $COMMAND."
+
+    MODEL_PARAMS="model=df_cross model.type=point"
+    DATASET_PARAMS="dataset=proc_cloth dataset.type=point dataset.scene=False dataset.world_frame=False dataset.data_dir=/home/beisner/datasets/cloth10k/cloth10k dataset.train_size=10000 dataset.cloth_pose=random dataset.anchor_pose=fixed"
+
 else
   echo "Invalid model type."
 fi
