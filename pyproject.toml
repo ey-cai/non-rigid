@@ -55,7 +55,7 @@ develop = [
   "black == 23.3.0",
   "isort == 5.12.0",
   "mypy == 1.3.0",
-  "pandas-stubs == 2.0.2.230605",
+  # "pandas-stubs == 2.0.2.230605",
   "pylint == 2.17.4",
   "pytest == 7.3.2",
   "pre-commit == 3.3.3",
