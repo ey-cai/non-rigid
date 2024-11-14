@@ -11,6 +11,7 @@ jobs:
   test:
     uses: ./.github/workflows/run-tests.yaml
     with:
-      install_string: .[develop]
+      # install_string: .[develop]
+      install_string: .
   build_site:
     uses: ./.github/workflows/build-site.yaml
