@@ -61,7 +61,8 @@ develop = [
   "pre-commit == 3.3.3",
 ]
 notebooks = ["jupyter"]
-build_docs = ["mkdocs-material", "mkdocstrings[python]"]
+# build_docs = ["mkdocs-material", "mkdocstrings[python]"]
+build_docs = ["mkdocs", "mkdocstrings[python]"]
 
 # This is required to allow us to have notebooks/ at the top level.
 [tool.setuptools.packages.find]

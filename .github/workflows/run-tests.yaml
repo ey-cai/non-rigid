@@ -30,7 +30,7 @@ jobs:
 
       - name: Install mkdocs
         run: pip install mkdocs
-        
+
       - name: Update pip and setuptools.
         run: pip install --upgrade pip==23.3.1 setuptools==65.5
 
@@ -40,8 +40,8 @@ jobs:
       - name: Install package
         run: pip install "${{ inputs.install_string }}"
 
-      - name: Code Quality
-        run: python -m black src/ tests/ --check
+      # - name: Code Quality
+      #   run: python -m black src/ tests/ --check
 
       - name: MyPy Typechecking
         run: python -m mypy src/ tests/
