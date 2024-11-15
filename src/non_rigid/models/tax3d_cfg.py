@@ -130,7 +130,8 @@ class DenseDisplacementDiffusionCFGModule(L.LightningModule):
             diffusion_steps=self.diff_steps,
             classifier_free_guidance=True,  # classifier-free param
             p_uncondition = self.model_cfg.p_uncondition,  # classifier-free param
-            guidance_strength = self.model_cfg.guidance_strength   # classifier-free param
+            guidance_strength = self.model_cfg.guidance_strength,   # classifier-free param
+            t_extra_steps = self.model_cfg.t_extra_steps    # classifier-free param
             # noise_schedule=self.noise_schedule,
         )
 

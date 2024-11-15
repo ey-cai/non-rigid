@@ -161,6 +161,7 @@ class GaussianDiffusionCFG:
         loss_type,
         p_uncondition,
         guidance_strength,
+        t_extra_steps,
     ):
 
         self.model_mean_type = model_mean_type
@@ -168,6 +169,7 @@ class GaussianDiffusionCFG:
         self.loss_type = loss_type
         self.p_uncondition = p_uncondition
         self.guidance_strength = guidance_strength
+        self.t_extra_steps = t_extra_steps
 
         # Use float64 for accuracy.
         betas = np.array(betas, dtype=np.float64)
@@ -545,6 +547,7 @@ class GaussianDiffusionCFG:
 
             indices = tqdm(indices)
 
+        # Standard denoising steps
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
@@ -559,6 +562,23 @@ class GaussianDiffusionCFG:
                 )
                 yield out
                 img = out["sample"]
+
+        # Extra Diffusion-X steps at a fixed timestep (e.g., t=1)
+        if self.t_extra_steps != 0:
+            fixed_t = th.tensor([indices[-1]] * shape[0], device=device)  # Fixed timestep for additional steps
+            for _ in range(self.t_extra_steps):
+                with th.no_grad():
+                    out = self.p_sample(
+                        model,
+                        img,
+                        fixed_t,
+                        clip_denoised=clip_denoised,
+                        denoised_fn=denoised_fn,
+                        cond_fn=cond_fn,
+                        model_kwargs=model_kwargs,
+                    )
+                    yield out
+                    img = out["sample"]
 
     def ddim_sample(
         self,

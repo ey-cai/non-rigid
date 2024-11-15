@@ -19,7 +19,8 @@ def create_diffusion(
     diffusion_steps=1000,
     classifier_free_guidance=False,
     p_uncondition=0.1,
-    guidance_strength=3
+    guidance_strength=3,
+    t_extra_steps=10
 ):
     
     if not classifier_free_guidance:
@@ -80,5 +81,6 @@ def create_diffusion(
             loss_type=loss_type,
             # rescale_timesteps=rescale_timesteps,
             p_uncondition=p_uncondition,
-            guidance_strength=guidance_strength
+            guidance_strength=guidance_strength,
+            t_extra_steps=t_extra_steps
         )

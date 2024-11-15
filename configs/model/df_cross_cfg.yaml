@@ -20,3 +20,4 @@ diff_noise_scale: 1.0 # Scale of noise for diffusion
 diff_type: gaussian
 p_uncondition: 0.1 # Uncond Probability for Classifier-free Guidance
 guidance_strength: 3.0 # Guide Strength for Classifier-free Guidance
+t_extra_steps: 15 # Extra steps for X-Diffusion

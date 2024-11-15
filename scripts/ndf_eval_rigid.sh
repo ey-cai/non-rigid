@@ -42,11 +42,19 @@ python scripts/eval_rigid.py \
   $MODEL_PARAMS \
   $DATASET_PARAMS \
   resources.gpus=[${GPU_INDEX}] \
-  checkpoint.reference=r-pad/non_rigid/model-${CHECKPOINT}:v0 \
+  checkpoint.reference='/home/lyuxinghe/non-rigid/logs/train_ndf_df_cross/2024-11-08/18-13-12/checkpoints/epoch_19999.ckpt' \
   checkpoint.run_id=${CHECKPOINT} \
   $COMMAND
 
 <<COMMENT
+
+python scripts/eval_rigid.py \
+  $MODEL_PARAMS \
+  $DATASET_PARAMS \
+  resources.gpus=[${GPU_INDEX}] \
+  checkpoint.reference=r-pad/non_rigid/model-${CHECKPOINT}:v0 \
+  checkpoint.run_id=${CHECKPOINT} \
+  $COMMAND
 
 # example: 
 ./scripts/ndf_eval_rigid.sh 0 cross_flow_relative kxl3gt4o wandb.online=True wandb.name=cfr_eval dataset.data_dir=/home/lyuxinghe/non-rigid/datasets/ndf/mugplace/
