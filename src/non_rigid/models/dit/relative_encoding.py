@@ -5,18 +5,18 @@ https://github.com/zhouxian/act3d-chained-diffuser/blob/main/model/utils/multihe
 https://github.com/zhouxian/act3d-chained-diffuser/blob/main/model/utils/layers.py
 """
 
-import torch
-from torch import nn
-from torch.nn import Linear
-from torch.nn.init import xavier_uniform_
-from torch.nn.init import constant_
-from torch.nn.init import xavier_normal_
-from torch.nn.parameter import Parameter
-from torch.nn import Module
-from torch.nn import functional as F
 
 import math
 import warnings
+from typing import Optional, Tuple  # noqa
+
+import torch
+from torch import Tensor  # noqa
+from torch import nn
+from torch.nn import Linear, Module
+from torch.nn import functional as F
+from torch.nn.init import constant_, xavier_normal_, xavier_uniform_
+from torch.nn.parameter import Parameter
 
 
 class RotaryPositionEncoding(nn.Module):
@@ -60,7 +60,6 @@ class RotaryPositionEncoding(nn.Module):
 
 
 class RotaryPositionEncoding3D(RotaryPositionEncoding):
-
     def __init__(self, feature_dim, pe_type="Rotary3D"):
         super().__init__(feature_dim, pe_type)
 
@@ -416,11 +415,10 @@ def multi_head_attention_forward(
                 k = None
                 v = None
             else:
-
                 # This is inline in_proj function with in_proj_weight and in_proj_bias
                 _b = in_proj_bias
                 _start = embed_dim
-                _end = None
+                _end = None  # type: ignore
                 _w = in_proj_weight[_start:, :]
                 if _b is not None:
                     _b = _b[_start:]
@@ -680,7 +678,7 @@ def multi_head_attention_forward(
     attn_output = F.linear(attn_output, out_proj_weight, out_proj_bias)
 
     if return_kv:
-        return attn_output, q, k, v
+        return attn_output, q, k, v  # type: ignore
     elif need_weights:
         # average attention weights over heads
         attn_output_weights = attn_output_weights.view(bsz, num_heads, tgt_len, src_len)

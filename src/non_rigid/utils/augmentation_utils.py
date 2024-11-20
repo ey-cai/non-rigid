@@ -1,13 +1,13 @@
-import omegaconf
-from pytorch3d.ops import ball_query
+from typing import Any, Dict, Optional, Tuple, Union
+
 import torch
+from pytorch3d.ops import ball_query
 from torch.nn import functional as F
-from typing import Tuple, Optional, Dict, Any
 
 
 def ball_occlusion(
     points: torch.Tensor, radius: float = 0.05, return_mask: bool = False
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+) -> Union[torch.Tensor, Tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """
     Occludes a ball shaped region of the point cloud with radius up to `radius`.
 
@@ -39,7 +39,7 @@ def ball_occlusion(
 
 def plane_occlusion(
     points: torch.Tensor, stand_off: float = 0.02, return_mask: bool = False
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+) -> Union[torch.Tensor, Tuple[torch.Tensor, Optional[torch.Tensor]]]:
     """
     Occludes a plane shaped region of the point cloud with stand-off distance `stand_off`.
 
@@ -85,7 +85,7 @@ def maybe_apply_augmentations(
     """
 
     if points.shape[0] < min_num_points:
-        return points, None
+        return points
 
     new_points = points
     # Maybe apply ball occlusion
@@ -93,6 +93,7 @@ def maybe_apply_augmentations(
         temp_points = ball_occlusion(
             new_points, radius=ball_occlusion_param["ball_radius"], return_mask=False
         )
+        assert isinstance(temp_points, torch.Tensor)
         if temp_points.shape[0] > min_num_points:
             new_points = temp_points
 
@@ -103,6 +104,7 @@ def maybe_apply_augmentations(
             stand_off=plane_occlusion_param["plane_standoff"],
             return_mask=False,
         )
+        assert isinstance(temp_points, torch.Tensor)
         if temp_points.shape[0] > min_num_points:
             new_points = temp_points
 

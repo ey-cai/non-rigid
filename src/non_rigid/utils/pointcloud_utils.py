@@ -1,18 +1,17 @@
+import re
+from typing import List, Optional, Tuple
+
 import numpy as np
+import torch
 from pytorch3d.ops import sample_farthest_points
 from pytorch3d.transforms import Transform3d
-import re
-import torch
-from typing import Tuple, List
 
 from non_rigid.utils.transform_utils import random_se3
 
 
-def expand_pcd(
-        points: torch.Tensor, num_samples: int
-) -> torch.Tensor:
+def expand_pcd(points: torch.Tensor, num_samples: int) -> torch.Tensor:
     """
-    Expands a batch of point clouds by a fixed factor. This is useful when sampling 
+    Expands a batch of point clouds by a fixed factor. This is useful when sampling
     multiple diffusion predictions for a batch of point clouds.
 
     Args:
@@ -23,9 +22,7 @@ def expand_pcd(
     if points.dim() == 2:
         B, N = points.shape
         points = (
-            points.unsqueeze(1)
-            .expand(B, num_samples, N)
-            .reshape(B * num_samples, N)
+            points.unsqueeze(1).expand(B, num_samples, N).reshape(B * num_samples, N)
         )
     elif points.dim() == 3:
         B, N, C = points.shape
@@ -56,26 +53,24 @@ def downsample_pcd(
     """
 
     if re.match(r"^fps$", type) is not None:
-        return sample_farthest_points(points, K=num_points, random_start_point=True)
+        return sample_farthest_points(points, K=num_points, random_start_point=True)  # type: ignore
     elif re.match(r"^random$", type) is not None:
         random_idx = torch.randperm(points.shape[1])[:num_points]
         return points[:, random_idx], random_idx
     elif re.match(r"^random_0\.[0-9]$", type) is not None:
-        prob = float(re.match(r"^random_(0\.[0-9])$", type).group(1))
+        prob = float(re.match(r"^random_(0\.[0-9])$", type).group(1))  # type: ignore
         if np.random.random() > prob:
-            return sample_farthest_points(points, K=num_points, random_start_point=True)
+            return sample_farthest_points(points, K=num_points, random_start_point=True)  # type: ignore
         else:
             random_idx = torch.randperm(points.shape[1])[:num_points]
             return points[:, random_idx], random_idx
     elif re.match(r"^[0-9]+N_random_fps$", type) is not None:
         random_num_points = (
-            int(re.match(r"^([0-9]+)N_random_fps$", type).group(1)) * num_points
+            int(re.match(r"^([0-9]+)N_random_fps$", type).group(1)) * num_points  # type: ignore
         )
         random_idx = torch.randperm(points.shape[1])[:random_num_points]
         random_points = points[:, random_idx]
-        return sample_farthest_points(
-            random_points, K=num_points, random_start_point=True
-        )
+        return sample_farthest_points(random_points, K=num_points, random_start_point=True)  # type: ignore
     else:
         raise NotImplementedError(f"Downsample type {type} not implemented")
 
@@ -94,7 +89,7 @@ def points_to_axis_aligned_rect(
         (torch.Tensor): [B, 6] Axis-aligned bounding box of the point cloud.
     """
     assert points.ndim == 3
-    rect_prism = torch.hstack([points.min(axis=1)[0], points.max(axis=1)[0]])
+    rect_prism = torch.hstack([points.min(axis=1)[0], points.max(axis=1)[0]])  # type: ignore
     buffer_w = (rect_prism[:, 3:6] - rect_prism[:, 0:3]) * buffer
     rect_prism = rect_prism + torch.hstack([-buffer_w, buffer_w])
 
@@ -221,7 +216,7 @@ def get_nonintersecting_anchor(
 
 
 def get_multi_anchor_scene(
-    points_gripper: torch.Tensor,
+    points_gripper: Optional[torch.Tensor],
     points_action: torch.Tensor,
     points_anchor_base: torch.Tensor,
     rot_var: float = np.pi,
@@ -231,7 +226,7 @@ def get_multi_anchor_scene(
     rot_sample_method: str = "axis_angle",
     num_anchors_to_add: int = 1,
 ) -> Tuple[
-    torch.Tensor,
+    Optional[torch.Tensor],
     torch.Tensor,
     torch.Tensor,
     List[torch.Tensor],
@@ -273,8 +268,7 @@ def get_multi_anchor_scene(
             N,
             rot_var=rot_var,
             trans_var=trans_var,
-            device=points_anchor_base.device,
-            fix_random=False,
+            device=points_anchor_base.device,  # type: ignore
         )
 
         points_anchor_base = T.transform_points(points_anchor_base)

@@ -80,9 +80,29 @@ warn_unused_configs = true
 mypy_path = "src"
 namespace_packages = true
 explicit_package_bases = true
+exclude = "src/non_rigid/dedo/.*"
 
 [[tool.mypy.overrides]]
-module = ["torchvision.*"]
+module = [
+    "dedo.*",
+    "gif.*",
+    "gym.*",
+    "plotly.*",
+    "pybullet.*",
+    "pybullet_data.*",
+    "pybullet_utils.*",
+    "pytorch3d.*",
+    "mpl_toolkits.*",
+    "ray.*",
+    "scipy.*",
+    "setuptools.*",
+    "shapely.*",
+    "tensorboardX.*",
+    "timm.*",
+    "torchvision.*",
+    "torch_geometric.*",
+    "tqdm.*",
+]
 ignore_missing_imports = true
 
 [tool.pylint]
@@ -90,3 +110,7 @@ known-third-party = "wandb"
 
 [tool.pylint.TYPECHECK]
 generated-members = 'torch.*'
+
+[tool.pytest.ini_options]
+addopts = "--ignore=third_party/"
+testpaths = "tests"

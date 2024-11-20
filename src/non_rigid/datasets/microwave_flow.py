@@ -1,19 +1,11 @@
+import os
+from pathlib import Path
+
 import lightning as L
-from lightning.pytorch.utilities.types import EVAL_DATALOADERS
+import numpy as np
 import torch
 import torch.utils.data as data
-import torchvision as tv
-from torchvision import transforms as T
 
-import rpad.visualize_3d.plots as vpl
-
-import numpy as np
-import torch_geometric.data as tgd
-import torch_geometric.loader as tgl
-import torch_geometric.transforms as tgt
-
-from pathlib import Path
-import os
 
 class MicrowaveFlowDataset(data.Dataset):
     def __init__(self, root, type="train"):
@@ -23,10 +15,10 @@ class MicrowaveFlowDataset(data.Dataset):
         self.type = type
         self.dataset_dir = self.root / self.type
         self.num_demos = int(len(os.listdir(self.dataset_dir)))
-    
+
     def __len__(self):
         return self.num_demos
-    
+
     def __getitem__(self, index):
         # load data
         demo = np.load(self.dataset_dir / f"demo_{index}.npz")
@@ -46,7 +38,7 @@ class MicrowaveFlowDataset(data.Dataset):
 
 
 class MultiGeneralFlowDataset(data.Dataset):
-    def __init__(self, root: Path, type: str="train"):
+    def __init__(self, root: Path, type: str = "train"):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
         self.root = root
@@ -54,10 +46,10 @@ class MultiGeneralFlowDataset(data.Dataset):
         self.dataset_dir = self.root / self.type
         self.num_demos = int(len(os.listdir(self.dataset_dir)))
         self.demo_files = list(self.dataset_dir.glob("obj_*_demo_*.npz"))
-        
+
     def __len__(self):
         return self.num_demos
-    
+
     def __getitem__(self, index):
         # load data
         demo = np.load(self.demo_files[index])
@@ -67,7 +59,9 @@ class MultiGeneralFlowDataset(data.Dataset):
         rgb = torch.as_tensor(demo["rgb"]).float()
         t_wc = torch.as_tensor(demo["t_wc"]).float()
         goal = torch.as_tensor(demo["goal"]).float()
-        obj_id = torch.as_tensor(int(demo["obj_id"])).int() # Assumes obj_id is an integer e.g. 7273
+        obj_id = torch.as_tensor(
+            int(demo["obj_id"])
+        ).int()  # Assumes obj_id is an integer e.g. 7273
         # return pc_init, flow, seg, rgb, t_wc, goal, obj_id
         return {
             "pc": pc_init,
@@ -85,8 +79,16 @@ DATASET_FN = {
     "articulated_multi": MultiGeneralFlowDataset,
 }
 
+
 class MicrowaveFlowDataModule(L.LightningDataModule):
-    def __init__(self, root: Path, batch_size: int, val_batch_size: int, num_workers: int, type: str = "microwave_flow"):
+    def __init__(
+        self,
+        root: Path,
+        batch_size: int,
+        val_batch_size: int,
+        num_workers: int,
+        type: str = "microwave_flow",
+    ):
         super().__init__()
         self.root = root
         self.batch_size = batch_size
@@ -94,7 +96,9 @@ class MicrowaveFlowDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.type = type
         if self.type not in DATASET_FN:
-            raise ValueError(f"Dataset type {self.type} not found in {DATASET_FN.keys()}")
+            raise ValueError(
+                f"Dataset type {self.type} not found in {DATASET_FN.keys()}"
+            )
 
     def prepare_data(self):
         pass
@@ -125,17 +129,16 @@ class MicrowaveFlowDataModule(L.LightningDataModule):
             drop_last=False,
         )
 
+
 if __name__ == "__main__":
     # testing the dataset and datamodule
     root = Path(os.path.expanduser("~/datasets/nrp/dataset/demos/microwave_flow/"))
     type = "val"
 
     dataset = MicrowaveFlowDataset(root, type)
-    goals = []
     for i in range(len(dataset)):
         pc, flow, seg, t, goal = dataset[i]
         print(pc.shape, flow.shape, seg.shape)
-
 
     # x, y = dataset[0]
     # pos = x[:, :3]
@@ -153,4 +156,3 @@ if __name__ == "__main__":
     # fig2 = vpl.segmentation_fig(pos + flow, torch.ones((pos.shape[0],), dtype=torch.int64))
     # fig2.show()
     # quit()
-    
