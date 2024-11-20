@@ -565,7 +565,9 @@ class GaussianDiffusionCFG:
 
         # Extra Diffusion-X steps at a fixed timestep (e.g., t=1)
         if self.t_extra_steps != 0:
-            fixed_t = th.tensor([indices[-1]] * shape[0], device=device)  # Fixed timestep for additional steps
+            #fixed_t = th.tensor([indices[-1]] * shape[0], device=device)  # Fixed timestep for additional steps
+            last_timestep = 0  # Equivalent to indices[-1]
+            fixed_t = th.tensor([last_timestep] * shape[0], device=device)  # Fixed timestep for additional steps
             for _ in range(self.t_extra_steps):
                 with th.no_grad():
                     out = self.p_sample(

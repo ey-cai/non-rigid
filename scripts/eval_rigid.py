@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from non_rigid.utils.logging_utils import viz_predicted_vs_gt
-from non_rigid.datasets.rigid import NDFPointDataset, RigidDataModule
+from non_rigid.datasets.rigid import RigidDataModule
 from non_rigid.models.df_base import (
     DiffusionFlowBase, 
     FlowPredictionInferenceModule, 

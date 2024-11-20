@@ -304,7 +304,7 @@ class RigidFlowDataset(data.Dataset):
         }
 
 
-class NDFPointDataset(data.Dataset):
+class NDFDataset(data.Dataset):
     def __init__(self, root, dataset_cfg, type):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
@@ -541,12 +541,7 @@ class NDFPointDataset(data.Dataset):
 
 
 class RPDiffPointDataset(data.Dataset):
-    def __init__(
-        self,
-        root: Path,
-        type: str = "train",
-        dataset_cfg: RigidDatasetCfg = RigidDatasetCfg(),
-    ):
+    def __init__(self, root, dataset_cfg, type):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
         self.root = root
@@ -775,8 +770,8 @@ class RPDiffPointDataset(data.Dataset):
 DATASET_FN = {
     #"rigid_point": RigidPointDataset,
     #"rigid_flow": RigidFlowDataset,
-    "ndf_point": NDFPointDataset,
-    "rpdiff_point": RPDiffPointDataset,
+    "ndf": NDFDataset,
+    "rpdiff": RPDiffPointDataset,
 }
 
 
@@ -825,10 +820,10 @@ class RigidDataModule(L.LightningModule):
             self.dataset_cfg.action_context_center_type = "none"
 
 
-        self.train_dataset = DATASET_FN[self.dataset_cfg.type](
+        self.train_dataset = DATASET_FN[self.dataset_cfg.name](
             self.root, type="train", dataset_cfg=self.dataset_cfg)
         
-        self.val_dataset = DATASET_FN[self.dataset_cfg.type](
+        self.val_dataset = DATASET_FN[self.dataset_cfg.name](
             self.root, type="val", dataset_cfg=self.dataset_cfg)
 
 

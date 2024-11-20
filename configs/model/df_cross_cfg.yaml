@@ -18,6 +18,6 @@ diff_inference_steps: 100 # Number of diffusion steps during inference
 diff_noise_schedule: linear # (linear, cosine) Noise schedule for diffusion
 diff_noise_scale: 1.0 # Scale of noise for diffusion
 diff_type: gaussian
-p_uncondition: 0.1 # Uncond Probability for Classifier-free Guidance
-guidance_strength: 3.0 # Guide Strength for Classifier-free Guidance
+p_uncondition: 0.1 # Uncond Probability for Classifier-free Guidance (etc, 0.1)
+guidance_strength: 3.0 # Guide Strength for Classifier-free Guidance (etc, 3.0)
 t_extra_steps: 15 # Extra steps for X-Diffusion

@@ -43,7 +43,7 @@ distractor_rotation_variance: 180 # Rotation variance of the distractor transfor
 ###################################################
 # Data Augmentation Parameters
 ###################################################
-random_pcd_scaling_probability: 0.8
+random_pcd_scaling_probability: 0
 random_pcd_scaling_max: 1.2
 random_pcd_scaling_min: 0.8
 
@@ -51,12 +51,12 @@ action_plane_occlusion: 0.8 # Probability of applying plane occlusion
 action_plane_standoff: 0.04 # Standoff distance of the occluding plane from selected plane origin
 action_ball_occlusion: 0 # Probability of applying ball occlusion
 action_ball_radius: 0.1 # Radius of the occluding ball
-action_random_drop_probability: 0.8 # Probability of applying random drop
+action_random_drop_probability: 0 # Probability of applying random drop
 action_random_drop_percent: 0.1 # Percentage of points being dropped
 
 anchor_plane_occlusion: 0 # Probability of applying plane occlusion
 anchor_plane_standoff: 0.04 # Standoff distance of the occluding plane from selected plane origin
 anchor_ball_occlusion: 0.8 # Probability of applying ball occlusion
 anchor_ball_radius: 0.1 # Radius of the occluding ball
-anchor_random_drop_probability: 0.8 # Probability of applying random drop
+anchor_random_drop_probability: 0 # Probability of applying random drop
 anchor_random_drop_percent: 0.1 # Percentage of points being dropped
