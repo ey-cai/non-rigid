@@ -176,14 +176,14 @@ def main(cfg):
                 save_last=False,
                 # auto_insert_metric_name=False,
             ),
-            # ModelCheckpoint(
-            #     dirpath=cfg.lightning.checkpoint_dir,
-            #     filename="{epoch}-{step}-{val_rmse_0:.3f}",
-            #     monitor="val_rmse_0",
-            #     mode="min",
-            #     save_weights_only=False,
-            #     save_last=False,
-            # )
+            ModelCheckpoint(
+                dirpath=cfg.lightning.checkpoint_dir,
+                filename="{epoch}-{step}-{val_rmse_0:.3f}",
+                monitor="val_rmse_0",
+                mode="min",
+                save_weights_only=False,
+                save_last=False,
+            ),
             # This checkpoint will get saved to WandB. The Callback mechanism in lightning is poorly designed, so we have to put it last.
             # ModelCheckpoint(
             #     dirpath=cfg.lightning.checkpoint_dir,
