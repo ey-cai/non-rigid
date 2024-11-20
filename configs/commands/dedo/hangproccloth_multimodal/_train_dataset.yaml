@@ -1,0 +1,6 @@
+# @package _global_
+
+dataset:
+    cloth_geometry: multi
+    hole: double
+    train_size: 400

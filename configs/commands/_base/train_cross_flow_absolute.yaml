@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+    - /train@_here_
+    - override /model: df_cross
+    - override /dataset: proc_cloth
+    - _self_
+
+model:
+    type: flow
+
+dataset:
+    type: flow
+    scene: False
+    world_frame: True
