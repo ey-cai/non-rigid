@@ -304,7 +304,7 @@ class RigidFlowDataset(data.Dataset):
         }
 
 
-class NDFDataset(data.Dataset):
+class NDFPointDataset(data.Dataset):
     def __init__(self, root, dataset_cfg, type):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
@@ -541,7 +541,12 @@ class NDFDataset(data.Dataset):
 
 
 class RPDiffPointDataset(data.Dataset):
-    def __init__(self, root, dataset_cfg, type):
+    def __init__(
+        self,
+        root: Path,
+        type: str = "train",
+        dataset_cfg: RigidDatasetCfg = RigidDatasetCfg(),
+    ):
         # This is a toy dataset - no need to normalize or otherwise process point cloud with torch geometric
         super().__init__()
         self.root = root
@@ -767,14 +772,11 @@ class RPDiffPointDataset(data.Dataset):
 
         return data
 
-
 DATASET_FN = {
     #"rigid_point": RigidPointDataset,
     #"rigid_flow": RigidFlowDataset,
-    #"ndf_point": NDFPointDataset,
-    #"rpdiff_point": RPDiffPointDataset,
-    "flow": NDFDataset, 
-    "point": NDFDataset,
+    "ndf_point": NDFPointDataset,
+    "rpdiff_point": RPDiffPointDataset,
 }
 
 

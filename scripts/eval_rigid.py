@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from non_rigid.utils.logging_utils import viz_predicted_vs_gt
-from non_rigid.datasets.rigid import NDFDataset, RigidDataModule
+from non_rigid.datasets.rigid import NDFPointDataset, RigidDataModule
 from non_rigid.models.df_base import (
     DiffusionFlowBase, 
     FlowPredictionInferenceModule, 
@@ -80,12 +80,12 @@ def eval_precision(stage, dataloader, model, device, num_trials, cfg):
     for batch in tqdm(dataloader, desc="Evaluating {} precision".format(stage)):
         batch = {key: value.to(device) for key, value in batch.items()}
         pred_dict = model.predict(batch, num_trials, progress=False)
-        pred = pred_dict[cfg.dataset.type]["pred"]
+        pred = pred_dict[cfg.model.type]["pred"]
 
         # getting predicted action point cloud
-        if cfg.dataset.type == "flow":
+        if cfg.model.type == "flow":
             pred_world = batch["pc_action"][:, :, :3] + pred
-        elif cfg.dataset.type == "point":
+        elif cfg.model.type == "point":
             pred_world = pred
         goal_world = batch["pc"][:, :, :3]
         
@@ -108,13 +108,13 @@ def eval_precision(stage, dataloader, model, device, num_trials, cfg):
         if cfg.wandb.online:
             # pick a random sample in the batch to visualize
             viz_idx = np.random.randint(0, batch["pc"].shape[0])
-            pred_viz = pred_dict[cfg.dataset.type]["pred"][viz_idx]
+            pred_viz = pred_dict[cfg.model.type]["pred"][viz_idx]
             viz_args = model.get_viz_args(batch, viz_idx)
 
             # getting predicted action point cloud
-            if cfg.dataset.type == "flow":
+            if cfg.model.type == "flow":
                 pred_action_viz = viz_args["pc_action_viz"] + pred_viz
-            elif cfg.dataset.type == "point":
+            elif cfg.model.type == "point":
                 pred_action_viz = pred_viz
 
             # logging predicted vs ground truth point cloud
