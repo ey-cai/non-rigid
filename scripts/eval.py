@@ -93,6 +93,8 @@ def main(cfg):
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
+    # TODO: this is only used to compute the coverage metric, so this could be moved
+    # into the coverage block to avoid creating unnecessary datamodules
     cfg, datamodule = create_datamodule(cfg)
 
     ######################################################################
@@ -125,14 +127,6 @@ def main(cfg):
     # set model to eval mode
     network.eval()
     model.eval()
-
-
-
-    VISUALIZE_DEMOS = False
-    VISUALIZE_PREDS = True
-    VISUALIZE_SINGLE = False
-    VISUALIZE_PULL = False
-
 
 
     ######################################################################
@@ -198,7 +192,7 @@ def main(cfg):
         # determining number of samples and batch size based on cloth type
         num_samples = 20
         # NOTE: in theory, I would compare against all the cloths in the single set
-        # However, this kind of implementation would not make extend well once I start 
+        # However, this kind of implementation would not extend well once I start 
         # conditioning on anchor pose - in other words, using the whole train set is not analogous 
         # to bucketizing the multi-cloth experiments, because the anchor pose is fixed in those 
         # buckets - so it's better to bucketize here as well, and have higher precision rmses, 
@@ -212,16 +206,28 @@ def main(cfg):
         
         # NOTE: this is very brittle - this will if a batch contains more than one cloth geometry
         # consider setting this back after precision is computed so the whole script can be run together
-        cfg.dataset.sample_size_action = -1
+        
+        # extracting action sample size for manual downsampling
+        if bs > 1:
+            sample_size_action = cfg.dataset.sample_size_action
+            cfg.dataset.sample_size_action = -1
 
-        # set up a new datamodule for the dataloaders
-        datamodule = ProcClothFlowDataModule(
-            batch_size=bs,
-            val_batch_size=bs,
-            num_workers=cfg.resources.num_workers,
-            dataset_cfg=cfg.dataset,
-        )
-        datamodule.setup(stage="predict")
+        # otherwise, can downsample as usual
+        cfg.inference.batch_size = bs
+        cfg.inference.val_batch_size = bs
+
+
+
+        # set up precision datamodule
+        cfg, datamodule = create_datamodule(cfg)
+        # # set up a new datamodule for the dataloaders
+        # datamodule = ProcClothFlowDataModule(
+        #     batch_size=bs,
+        #     val_batch_size=bs,
+        #     num_workers=cfg.resources.num_workers,
+        #     dataset_cfg=cfg.dataset,
+        # )
+        # datamodule.setup(stage="predict")
         train_loader = datamodule.train_dataloader()
         val_loader, val_ood_loader = datamodule.val_dataloader()
 
@@ -229,6 +235,7 @@ def main(cfg):
         def precision_eval(dataloader, model):
             precision_rmses = []
             for batch in tqdm(dataloader):
+                # manually downsampling to ensure correspondences are consistent across the batch
                 # generate predictions
                 pred_dict = model.predict(batch, num_samples, progress=False)
                 pred_pc = pred_dict["point"]["pred"]
@@ -240,7 +247,6 @@ def main(cfg):
                     pred = expand_pcd(pred.unsqueeze(0), bs)
                     precision_rmses.append(torch.min(flow_rmse(pred, pc, mask=True, seg=seg)))
                     
-
                 # VISUALIZATION CODE - KEEP FOR LATER
                 # pred_pc = pred_dict["point"]["pred_world"].cpu().numpy()
                 # # convert batch back to world frame
