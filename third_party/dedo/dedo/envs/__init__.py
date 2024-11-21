@@ -7,3 +7,4 @@ from dedo.envs.hangbag_tax3d import HangBagTAX3D
 # importing new updated environments
 from dedo.envs.tax3d_env import Tax3dEnv
 from dedo.envs.tax3d_proccloth_env import Tax3dProcClothEnv
+from dedo.envs.tax3d_proccloth_robot_env import Tax3dProcClothRobotEnv

@@ -210,7 +210,7 @@ class Tax3dEnv(gym.Env):
 
         # Special case for Procedural Cloth tasks that can have two holes:
         # reward is based on the closest hole.
-        if self.args.env.startswith('HangProcCloth'):
+        if 'HangProcCloth' in self.args.env:
             self.goal_pos = np.vstack((self.goal_pos, self.goal_pos))
 
         self.sim.stepSimulation() # step once to get initial state
@@ -307,9 +307,9 @@ class Tax3dEnv(gym.Env):
         # print(action)
         if self.args.debug:
             print('action', action)
-        if not unscaled:
-            assert self.action_space.contains(action)
-            # assert ((np.abs(action) <= 1.0).all()), 'action must be in [-1, 1]'
+        # if not unscaled:
+        #     assert self.action_space.contains(action)
+        #     # assert ((np.abs(action) <= 1.0).all()), 'action must be in [-1, 1]'
         action = action.reshape(self.num_anchors, -1)
 
         # Step through physics simulation.
@@ -318,6 +318,8 @@ class Tax3dEnv(gym.Env):
                 self.do_action_velocity(action, unscaled)
             elif action_type == 'position':
                 self.do_action_position(action, unscaled, tax3d)
+            elif action_type == 'ee_position':
+                self.do_action_ee_position(action)
             else:
                 raise ValueError(f'Unknown action type {action_type}')
             self.sim.stepSimulation()
@@ -394,6 +396,9 @@ class Tax3dEnv(gym.Env):
                 task='proccloth'
             )
  
+    def do_action_ee_position(self, action, unscaled):
+        raise NotImplementedError("do_action_ee_position method must be implemented in the subclass.")
+
     def make_final_steps(self):
         # We do no explicitly release the anchors, since this can create a jerk
         # and large forces.

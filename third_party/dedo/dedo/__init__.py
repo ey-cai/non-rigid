@@ -67,3 +67,6 @@ register(
 register(
     id='Tax3dHangProcCloth-v0', entry_point='dedo.envs:Tax3dProcClothEnv', order_enforce=False
 )
+register(
+    id='Tax3dHangProcClothRobot-v0', entry_point='dedo.envs:Tax3dProcClothRobotEnv', order_enforce=False
+)

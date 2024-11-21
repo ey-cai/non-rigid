@@ -62,6 +62,7 @@ def play(env, num_episodes, args):
     for epsd in range(num_episodes):
         print('------------ Play episode ', epsd, '------------------')
         obs = env.reset()
+        breakpoint()
         if args.cam_resolution > 0:
             img = env.render(mode='rgb_array', width=args.cam_resolution,
                              height=args.cam_resolution)

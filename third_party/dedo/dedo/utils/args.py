@@ -181,7 +181,7 @@ def args_postprocess(args):
     if args.tax3d:
         # args.env = args.task + 'TAX3D' + '-v' + str(args.version)
         args.pcd = True
-        args.env = 'Tax3d' + args.task + '-v' + str(args.version)
+        args.env = 'Tax3d' + args.env
     
     # if in debug mode, turn on visualization
     if args.debug:

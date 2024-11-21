@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument('--random_anchor_pose', action='store_true', help='randomize anchor pose')
     parser.add_argument('--cloth_hole', type=str, default='single', help='number of holes in cloth')
     parser.add_argument('--tag', type=str, default='', help='additional tag for dataset description')
+    parser.add_argument('--robot_env', action='store_true', help='use robot environment')
     # Args for demo generation.
     parser.add_argument('--debug_viz', action='store_true', help='debug mode (turns on GUI)')
     parser.add_argument('--vid_speed', type=int, default=3, help='speed of rollout video')
@@ -60,6 +61,8 @@ if __name__ == '__main__':
     random_anchor_pose = args.random_anchor_pose
     cloth_hole = args.cloth_hole
     tag = args.tag
+    use_robot_env = args.robot_env
+    action_type = 'ee_position' if use_robot_env else 'position'
 
     if cloth_hole not in ['single', 'double']:
         raise ValueError(f'Invalid cloth hole configuration: {cloth_hole}')
@@ -81,7 +84,8 @@ if __name__ == '__main__':
     exp_name_dir = (
         f'cloth={cloth_geometry}-{cloth_pose} ' + \
         f'anchor={anchor_geometry}-{anchor_pose} ' + \
-        f'hole={cloth_hole}{tag}'
+        f'hole={cloth_hole}{tag} ' + \
+        f'robot={use_robot_env}'
     )
 
     # creating directories
@@ -108,7 +112,7 @@ if __name__ == '__main__':
     # parse DEDO demo args and create DEDO env
     ###############################
     dedo_args = get_args()
-    dedo_args.env = 'HangProcCloth-v0'
+    dedo_args.env = 'HangProcClothRobot-v0' if use_robot_env else 'HangProcCloth-v0'
     dedo_args.tax3d = True
     dedo_args.rollout_vid = True
     dedo_args.viz = args.debug_viz
@@ -218,6 +222,7 @@ if __name__ == '__main__':
                     deform_params=deform_params,
                     rigid_params=rigid_params,
                 )
+                breakpoint()
 
                 # initializing tax3d demo
                 tax3d_demo = {
@@ -265,7 +270,7 @@ if __name__ == '__main__':
                     action_arrays_sub.append(action)
 
                     # step environment
-                    obs, reward, done, info = env.step(action, action_type='position')
+                    obs, reward, done, info = env.step(action, action_type=action_type)
                     reward_sum += reward
                     if done:
                         success = info['is_success']

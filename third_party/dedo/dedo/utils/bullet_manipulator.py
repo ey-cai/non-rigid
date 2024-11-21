@@ -325,6 +325,45 @@ class BulletManipulator:
         # IK will find solutions outside of joint limits, so clip.
         qpos = self.clip_qpos(qpos)
         return qpos
+    
+    def _fing_pos_to_qpos_raw(self, fing_pos, fing_ori=None, fing_dist=0.0,
+                              left_fing_pos=None, left_fing_ori=None,
+                              left_fing_dist=0.0, debug=False):
+        fing_quat = None
+        if fing_ori is not None:
+            fing_quat = sin_cos_to_quat(fing_ori)
+        qpos = pybullet.calculateInverseKinematics(
+            self.info.robot_id, self.info.finger_link_ids[0],
+            targetPosition=fing_pos.tolist(), targetOrientation=fing_quat,
+            **self.default_ik_args)
+        qpos = np.array(qpos)
+        for jid in self.info.finger_jids_lst:
+            qpos[jid] = np.clip(  # finger info (not set by IK)
+                fing_dist/2.0, self.info.joint_minpos[jid],
+                self.info.joint_maxpos[jid])
+        #
+        # Take care of left arm, if needed.
+        #
+        left_fing_quat = None
+        if left_fing_ori is not None:
+            left_fing_quat = sin_cos_to_quat(left_fing_ori)
+        if len(self.info.left_finger_jids_lst)>0:
+            if left_fing_pos is not None:
+                left_qpos = np.array(pybullet.calculateInverseKinematics(
+                    self.info.robot_id, self.info.left_finger_link_ids[1],
+                    left_fing_pos.tolist(), left_fing_quat,
+                    **self.default_ik_args))
+            else:
+                left_qpos = self.get_qpos()
+            qpos[self.info.left_finger_jids_lst] = \
+                left_qpos[self.info.left_finger_jids_lst]
+        for jid in self.info.left_finger_jids_lst:
+            qpos[jid] = np.clip(  # finger info (not set by IK)
+                left_fing_dist/2.0, self.info.joint_minpos[jid],
+                self.info.joint_maxpos[jid])
+        # IK will find solutions outside of joint limits, so clip.
+        qpos = self.clip_qpos(qpos)
+        return qpos
 
     def move_to_qpos(self, tgt_qpos, mode, kp=None, kd=None):
         if kp is None: kp = self.kp
@@ -515,6 +554,13 @@ class BulletManipulator:
         qpos = self._ee_pos_to_qpos_raw(
             ee_pos, ee_ori, fing_dist,
             left_ee_pos, left_ee_ori, left_fing_dist, debug=debug)
+        return qpos
+    
+    def fing_pos_to_qpos(self, fing_pos, fing_ori, fing_dist, left_fing_pos=None,
+                            left_fing_ori=None, left_fing_dist=0.0, debug=False):
+        qpos = self._fing_pos_to_qpos_raw(
+            fing_pos, fing_ori, fing_dist,
+            left_fing_pos, left_fing_ori, left_fing_dist, debug=debug)
         return qpos
 
     def get_relative_pose(self, pos, quat=None):

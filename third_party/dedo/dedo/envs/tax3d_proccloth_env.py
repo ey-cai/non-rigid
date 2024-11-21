@@ -66,7 +66,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
         # Setting default task-specific parameters.
         self.scene_name = 'hangcloth'
         self.args.node_density = 25
-        self.args.num_holes = 1
+        # self.args.num_holes = 1
 
     def load_objects(self, args):
         # ----------------- LOADING DEFORMABLE OBJECT -----------------
