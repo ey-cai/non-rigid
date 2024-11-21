@@ -13,7 +13,7 @@ For now, all of the up-to-date TAX3D code is in the ``articulated`` branch.
 git clone https://github.com/ey-cai/non-rigid.git
 cd non-rigid
 git checkout articulated
-conda create --name ENVNAME python=3.9 pip==23.3.1 setuptools==65.5
+conda create --name ENVNAME python=3.10 pip==23.3.1 setuptools==65.5
 ```
 Before installing ``non-rigid``, you'll need to install versions of PyTorch, PyTorch Geometric, and PyTorch3D. We've provided specific GPU versions in ``requirements-gpu.txt``:
 ```
