@@ -17,12 +17,10 @@ from PIL import Image
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--env_name', type=str, default='single_cloth', help='environment to run')
     parser.add_argument('--root_dir', type=str, default='data', help='directory to save data')
     parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run')
     parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
     parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
-    # parser.add_argument('--anchor_config', type=str, default='fixed', help='anchor configuration')
     parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
@@ -33,12 +31,7 @@ def parse_args():
     parser.add_argument('--tag', type=str, default='', help='additional tag for dataset description')
     # Args for demo generation.
     parser.add_argument('--vid_speed', type=int, default=3, help='speed of rollout video')
-    #parser.add_argument('--save_demos', action='store_true', help='generate DEDO demos')
-    #parser.add_argument('--save_tax3d', action='store_true', help='save TAX3D demos')
-    #parser.add_argument('--save_rollout_vids', action='store_true', help='save rollout videos')
     args, _ = parser.parse_known_args()
-    # TODO: maybe add task as an argument, so that all the demonstration generation can be consolidated into one script
-
     return args
 
 def downsample_with_fps(points: np.ndarray, num_points: int = 512):
@@ -60,14 +53,8 @@ if __name__ == '__main__':
     num_episodes = args.num_episodes
     action_num_points = args.action_num_points
     anchor_num_points = args.anchor_num_points
-    # anchor_config = args.anchor_config
     split = args.split
     vid_speed = args.vid_speed
-
-    #save_demos = args.save_demos
-    #save_tax3d = args.save_tax3d
-    #save_rollout_vids = args.save_rollout_vids
-
     random_cloth_geometry = args.random_cloth_geometry
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
@@ -86,6 +73,11 @@ if __name__ == '__main__':
     cloth_pose = 'random' if random_cloth_pose else 'fixed'
     anchor_geometry = 'multi' if random_anchor_geometry else 'single'
     anchor_pose = 'random' if random_anchor_pose else 'fixed'
+    num_holes = 1 if cloth_hole == 'single' else 2
+    # check that num_holes divides num_episodes
+    if num_episodes % num_holes != 0:
+        raise ValueError(f'num_episodes ({num_episodes}) must be divisible by num_holes ({num_holes})')
+
     # experiment name
     exp_name_dir = (
         f'cloth={cloth_geometry}-{cloth_pose} ' + \
@@ -127,23 +119,9 @@ if __name__ == '__main__':
     dedo_args.max_episode_len = 300
     args_postprocess(dedo_args)
 
-    # TODO: based on env name, there should be some logic here handling resetting of the environment
-    # potentially have to load env configuration from TAX3D datasets
-    num_holes = 1 if cloth_hole == 'single' else 2
-    # deform_params = { # for single-cloth datasets
-    #     'num_holes': num_holes,
-    #     'node_density': 25,
-    #     'w': 1.0,
-    #     'h': 1.0,
-    #     'holes': [{'x0': 8, 'x1': 16, 'y0': 9, 'y1': 13}]
-    # }
-    # check that num_holes divides num_episodes
-    if num_episodes % num_holes != 0:
-        raise ValueError(f'num_episodes ({num_episodes}) must be divisible by num_holes ({num_holes})')
-
+    # creating env
     kwargs = {'args': dedo_args}
     env = gym.make(dedo_args.env, **kwargs)
-
 
     # settings seed based on split
     if split == 'train':
@@ -153,7 +131,6 @@ if __name__ == '__main__':
     elif split == 'val_ood':
         seed = 20
     env.seed(seed)
-
 
     ###############################
     # run episodes
@@ -176,13 +153,10 @@ if __name__ == '__main__':
                 deform_params = {
                     'num_holes': num_holes,
                     'node_density': 25,
-                    #'w': 1.0,
-                    #'h': 1.0,
                 }
             else:
                 if num_holes == 1:
                     holes = [
-                        # {'x0': 9, 'x1': 13, 'y0': 11, 'y1': 14}
                         {'x0': 8, 'x1': 16, 'y0': 9, 'y1': 13}
                     ]
                 else:
@@ -195,7 +169,6 @@ if __name__ == '__main__':
                     'node_density': 25,
                     'w': 1.0,
                     'h': 1.0,
-                    # 'holes': [{'x0': 8, 'x1': 16, 'y0': 9, 'y1': 13}]
                     'holes': holes,
                 }
 

@@ -1,16 +1,16 @@
-from non_rigid.utils.vis_utils import plot_multi_np
+from typing import Any, Dict, List, Optional
+
 import numpy as np
-from pytorch3d.transforms import Transform3d, Rotate, Translate
-from scipy.spatial.transform import Rotation as R
 import torch
-from typing import Dict, List
+from pytorch3d.transforms import Rotate, Transform3d, Translate
+from scipy.spatial.transform import Rotation as R
 
 from non_rigid.utils.transform_utils import (
     flow_to_tf,
     get_degree_angle,
-    get_translation,
     get_transform_list_min_rotation_errors,
     get_transform_list_min_translation_errors,
+    get_translation,
     matrix_from_list,
 )
 
@@ -18,7 +18,7 @@ from non_rigid.utils.transform_utils import (
 def get_rigid_errors(
     T_pred: Transform3d,
     T_gt: Transform3d,
-    T_action2distractor_list: List[Transform3d] = None,
+    T_action2distractor_list: Optional[List[Transform3d]] = None,
     error_type: str = "distractor_min",
 ) -> Dict[str, float]:
     """
@@ -59,10 +59,12 @@ def get_rigid_errors(
             for T_action2distractor in T_action2distractor_list
         ]
 
-        error_t_max, error_t_min, error_t_mean = (
-            get_transform_list_min_translation_errors(
-                T_pred_diff, T_action2distractor_diff_list
-            )
+        (
+            error_t_max,
+            error_t_min,
+            error_t_mean,
+        ) = get_transform_list_min_translation_errors(
+            T_pred_diff, T_action2distractor_diff_list
         )
         error_R_max, error_R_min, error_R_mean = get_transform_list_min_rotation_errors(
             T_pred_diff, T_action2distractor_diff_list
@@ -82,7 +84,7 @@ def get_rigid_errors(
 
 def get_rigid_available_pose_errors(
     T_pred: Transform3d,
-    batch: Dict[str, torch.Tensor],
+    batch: Dict[str, Any],
     trans_thresh: float = 0.02,
 ) -> Dict[str, float]:
     """
@@ -226,7 +228,7 @@ def get_rigid_available_pose_errors(
             saved_available_poses_fname = batch["rpdiff_saved_poses_path"][batch_idx]
 
             loaded_poses = np.loadtxt(saved_available_poses_fname)
-            loaded_poses = [matrix_from_list(pose) for pose in loaded_poses]
+            loaded_poses = [matrix_from_list(pose) for pose in loaded_poses]  # type: ignore
 
             # get avail poses in the trans anchor frame
             avail_poses_trans_anchor_frame_base = []
@@ -236,7 +238,7 @@ def get_rigid_available_pose_errors(
                 pose_ = np.eye(4)
                 pose_[:-1, -1] = pose_transf
                 pose_[:-1, :-1] = pose_rot
-                
+
                 trans_pose_ = np.matmul(
                     parent_pose_to_trans_anchor_frame.get_matrix()
                     .squeeze(0)
@@ -245,10 +247,10 @@ def get_rigid_available_pose_errors(
                     .numpy(),
                     pose_,
                 )
-                
+
                 avail_poses_trans_anchor_frame_base.append(trans_pose_)
 
-            avail_poses_trans_anchor_frame = []
+            avail_poses_trans_anchor_frame = []  # type: ignore
             for p_idx, pose in enumerate(avail_poses_trans_anchor_frame_base):
                 # get all four orientations that work
                 r1 = R.from_euler("xyz", [0, 0, 0]).as_matrix()
@@ -270,13 +272,11 @@ def get_rigid_available_pose_errors(
                 p5 = np.matmul(pose, tf5)
                 p6 = np.matmul(pose, tf6)
 
-
                 # all_poses_to_save = [p1, p2, p3, p4, p5, p6, p7, p8]
                 all_poses_to_save = [p1, p2, p5, p6]
 
                 # Don't save poses that are too close to existing ones
                 for p_to_save in all_poses_to_save:
-
                     a_rotmat = p_to_save[:-1, :-1]
                     close_to_existing = False
                     for p2_idx, pose2 in enumerate(avail_poses_trans_anchor_frame):
@@ -303,7 +303,7 @@ def get_rigid_available_pose_errors(
             saved_available_poses_fname = batch["rpdiff_saved_poses_path"][batch_idx]
 
             loaded_poses = np.load(saved_available_poses_fname, allow_pickle=True)
-            avail_pose_info_all = loaded_poses["avail_top_poses"]
+            avail_pose_info_all = loaded_poses["avail_top_poses"]  # type: ignore
 
             points_action = batch["pc_action"][batch_idx, :, :3]
             # Get the extents of the action points
@@ -327,7 +327,7 @@ def get_rigid_available_pose_errors(
                 pose_ = np.eye(4)
                 pose_[:-1, -1] = pose_transf
                 pose_[:-1, :-1] = pose_rot
-                
+
                 trans_pose_ = np.matmul(
                     parent_pose_to_trans_anchor_frame.get_matrix()
                     .squeeze(0)
@@ -336,7 +336,7 @@ def get_rigid_available_pose_errors(
                     .numpy(),
                     pose_,
                 )
-                
+
                 avail_poses_trans_anchor_frame_base.append(trans_pose_)
 
             avail_poses_trans_anchor_frame = []
@@ -356,7 +356,6 @@ def get_rigid_available_pose_errors(
                 all_poses_to_save = [p1, p2]
 
                 for p_to_save in all_poses_to_save:
-
                     a_rotmat = p_to_save[:-1, :-1]
                     close_to_existing = False
                     for p2_idx, pose2 in enumerate(avail_poses_trans_anchor_frame):
@@ -418,12 +417,12 @@ def get_rigid_available_pose_errors(
         batch_min_dists.append([min_trans_dist, min_rot_dist])
 
     # Calculate the batch mean of the min translation and rotation errors
-    batch_min_dists = np.array(batch_min_dists)
+    batch_min_dists = np.array(batch_min_dists)  # type: ignore
     batch_min_dists = np.mean(batch_min_dists, axis=0)
 
     return {
-        "error_t_mean": batch_min_dists[0],
-        "error_R_mean": batch_min_dists[1],
+        "error_t_mean": batch_min_dists[0],  # type: ignore
+        "error_R_mean": batch_min_dists[1],  # type: ignore
     }
 
 

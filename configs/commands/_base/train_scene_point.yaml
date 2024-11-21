@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+    - /train@_here_
+    - override /model: df_base
+    - override /dataset: proc_cloth
+    - _self_
+
+model:
+    type: point
+
+dataset:
+    type: point
+    scene: True
+    world_frame: True

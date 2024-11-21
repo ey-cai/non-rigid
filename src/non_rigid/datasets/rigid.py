@@ -1,19 +1,18 @@
+import os
 from dataclasses import dataclass, field
-from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, Optional
+
 import lightning as L
-from non_rigid.utils.vis_utils import plot_multi_np
 import numpy as np
 import omegaconf
-import os
-from pathlib import Path
-from pytorch3d.transforms import Transform3d, Translate
 import torch
 import torch.utils.data as data
-from typing import Dict
+from pytorch3d.transforms import Translate
 
 from non_rigid.utils.augmentation_utils import maybe_apply_augmentations
-from non_rigid.utils.transform_utils import random_se3
 from non_rigid.utils.pointcloud_utils import downsample_pcd, get_multi_anchor_scene
+from non_rigid.utils.transform_utils import random_se3
 
 
 @dataclass
@@ -28,7 +27,7 @@ class RigidDatasetCfg:
     # General Dataset Parameters
     ###################################################
     # Number of demos to load
-    num_demos: int = None
+    num_demos: Optional[int] = None
     # Length of the train dataset
     train_dataset_size: int = 256
     # Length of the validation dataset
@@ -549,7 +548,7 @@ class RPDiffPointDataset(data.Dataset):
         else:
             raise ValueError(f"Unknown dataset type: {self.type}")
 
-    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, index: int) -> Dict[str, Any]:
         demo = np.load(self.demo_files[index % self.num_demos], allow_pickle=True)
 
         # Extract point clouds
@@ -766,7 +765,7 @@ class RigidDataModule(L.LightningModule):
         batch_size: int,
         val_batch_size: int,
         num_workers: int,
-        dataset_cfg: omegaconf.DictConfig = None,
+        dataset_cfg: omegaconf.DictConfig,
     ):
         super().__init__()
         self.root = root
@@ -783,14 +782,14 @@ class RigidDataModule(L.LightningModule):
             self.root,
             type="train",
             dataset_cfg=RigidDatasetCfg(
-                **omegaconf.OmegaConf.to_container(self.dataset_cfg)
+                **omegaconf.OmegaConf.to_container(self.dataset_cfg)  # type: ignore
             ),
         )
         self.val_dataset = DATASET_FN[self.dataset_cfg.type](
             self.root,
             type="val",
             dataset_cfg=RigidDatasetCfg(
-                **omegaconf.OmegaConf.to_container(self.dataset_cfg)
+                **omegaconf.OmegaConf.to_container(self.dataset_cfg)  # type: ignore
             ),
         )
 

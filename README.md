@@ -1,6 +1,22 @@
-# TAX3D: Non-rigid Relative Placement through 3D Dense Diffusion #
-Eric Cai, Octavian Donca, Ben Eisner, David Held
+# TAX3D: Task-Specific Cross-Displacement through Dense Diffusion #
+This is the official code release for our CoRL 2024 paper:
 
+**Non-rigid Relative Placement through 3D Dense Diffusion**\
+*Eric Cai, Octavian Donca, Ben Eisner, David Held*\
+[arXiv](https://arxiv.org/abs/2410.19247) | [Project Page](https://sites.google.com/view/tax3d-corl-2024)
+```
+@inproceedings{cai2024tax3d,
+    title       = {Non-rigid Relative Placement through 3D Dense Diffusion},
+    author      = {Eric Cai and Octavian Donca and Ben Eisner and David Held},
+    booktitle   = {8th Annual Conference on Robot Learning},
+    year        = {2024},
+    url         = {https://arxiv.org/abs/2410.19247}
+}
+```
+Questions? Open an issue, or send an email to:
+```
+eycai [at] andrew [dot] cmu [dot] edu
+```
 
 # Installation #
 
@@ -12,7 +28,6 @@ For now, all of the up-to-date TAX3D code is in the ``articulated`` branch.
 ```
 git clone https://github.com/ey-cai/non-rigid.git
 cd non-rigid
-git checkout articulated
 conda create --name ENVNAME python=3.9 pip==23.3.1 setuptools==65.5
 ```
 Before installing ``non-rigid``, you'll need to install versions of PyTorch, PyTorch Geometric, and PyTorch3D. We've provided specific GPU versions in ``requirements-gpu.txt``:
@@ -42,6 +57,26 @@ For now, the easiest thing to do is to install ``non-rigid`` in editable mode. T
 pip install -e .
 ```
 And you're done!
+
+# Generating Datasets #
+
+For convenience, the exact datasets used to run all experiments in the paper can be found [here](https://drive.google.com/file/d/1qdkmRQ9FuAoc_A3vpVpB4JSDjVYqy2ae/view?usp=drive_link).
+
+As a reference, these are the commands to re-generate the datasets:
+```
+# For HangProcCloth-simple
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_proccloth.py --root_dir="<path/to/data/directory>/proccloth" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --cloth_hole=single
+
+# For HangProcCloth-unimodal
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_proccloth.py --root_dir="<path/to/data/directory>/proccloth" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --random_cloth_geometry --cloth_hole=single
+
+# For HangProcCloth-multimodal
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_proccloth.py --root_dir="<path/to/data/directory>/proccloth" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --random_cloth_geometry --cloth_hole=double
+
+# For HangBag
+python third_party/3D-Diffusion-Policy/third_party/dedo_scripts/gen_demonstration_hangbag.py --root_dir="<path/to/data/directory>/hangbag" --num_episodes=[NUM_EPISODES_PER_SPLIT] --split=[SPLIT] --random_anchor_pose --cloth_hole=single
+```
+As noted in the paper, `HangProcCloth-simple` and `HangBag` used `train/val/val_ood` split sizes of 16/40/40, while `HangProcCloth-unimodal` and `HangProcCloth-multimodal` used 64/40/40.
 
 # Training Models #
 To train a model, run:
