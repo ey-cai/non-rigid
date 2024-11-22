@@ -52,7 +52,13 @@ class DedoDataset(data.Dataset):
     def __len__(self):
         return self.size
     
-    def __getitem__(self, index):
+    def __getitem__(self, index, return_indices=False, use_indices=None):
+        """
+        Args:
+            return_indices: if True, return the indices used to downsample the point clouds.
+            use_indices: if not None, use these indices to downsample the point clouds. If indices are provided,
+                sample_size_action and sample_size_anchor are ignored.
+        """
         # loop over the dataset multiple times - allows for arbitrary dataset and batch size
         file_index = index % self.num_demos
         # load data
@@ -70,15 +76,45 @@ class DedoDataset(data.Dataset):
         }
 
         # downsample action
-        if self.sample_size_action > 0 and action_pc.shape[0] > self.sample_size_action:
+        if use_indices is not None and "action_pc_indices" in use_indices:
+            action_pc_indices = use_indices["action_pc_indices"]
+            action_pc = action_pc[action_pc_indices]
+            flow = flow[action_pc_indices]
+        elif self.sample_size_action > 0 and action_pc.shape[0] > self.sample_size_action:
             action_pc, action_pc_indices = downsample_pcd(action_pc.unsqueeze(0), self.sample_size_action, type=self.dataset_cfg.downsample_type)
+            action_pc_indices = action_pc_indices.squeeze(0)
             action_pc = action_pc.squeeze(0)
-            flow = flow[action_pc_indices.squeeze(0)]
+            flow = flow[action_pc_indices]
+        else:
+            action_pc_indices = torch.arange(action_pc.shape[0])
 
         # downsample anchor
-        if self.sample_size_anchor > 0 and anchor_pc.shape[0] > self.sample_size_anchor:
+        if use_indices is not None and "anchor_pc_indices" in use_indices:
+            anchor_pc_indices = use_indices["anchor_pc_indices"]
+            anchor_pc = anchor_pc[anchor_pc_indices]
+        elif self.sample_size_anchor > 0 and anchor_pc.shape[0] > self.sample_size_anchor:
             anchor_pc, anchor_pc_indices = downsample_pcd(anchor_pc.unsqueeze(0), self.sample_size_anchor, type=self.dataset_cfg.downsample_type)
+            anchor_pc_indices = anchor_pc_indices.squeeze(0)
             anchor_pc = anchor_pc.squeeze(0)
+        else:
+            anchor_pc_indices = torch.arange(anchor_pc.shape[0])
+
+        # return indices if specified
+        if return_indices:
+            item["action_pc_indices"] = action_pc_indices
+            item["anchor_pc_indices"] = anchor_pc_indices
+
+
+        # # downsample action
+        # if self.sample_size_action > 0 and action_pc.shape[0] > self.sample_size_action:
+        #     action_pc, action_pc_indices = downsample_pcd(action_pc.unsqueeze(0), self.sample_size_action, type=self.dataset_cfg.downsample_type)
+        #     action_pc = action_pc.squeeze(0)
+        #     flow = flow[action_pc_indices.squeeze(0)]
+
+        # # downsample anchor
+        # if self.sample_size_anchor > 0 and anchor_pc.shape[0] > self.sample_size_anchor:
+        #     anchor_pc, anchor_pc_indices = downsample_pcd(anchor_pc.unsqueeze(0), self.sample_size_anchor, type=self.dataset_cfg.downsample_type)
+        #     anchor_pc = anchor_pc.squeeze(0)
 
         # randomly occlude the anchor
         if self.dataset_cfg.anchor_occlusion:
@@ -89,8 +125,9 @@ class DedoDataset(data.Dataset):
         # compute goal action point cloud
         goal_action_pc = action_pc + flow
 
-        # TODO: IMPLEMENT THE REST OF THIS
-        # NOTE: got rid of the seg variables, so will need to manually create them
+        # manually creating seg tensors
+        seg = torch.ones_like(action_pc[:, 0]).int()
+        seg_anchor = torch.zeros_like(anchor_pc[:, 0]).int()
 
         # apply scene-level augmentation
         T = random_se3(
@@ -125,6 +162,7 @@ class DedoDataset(data.Dataset):
         # handle scene-anchor processing
         if self.scene_anchor:
             anchor_pc = torch.cat([action_pc, anchor_pc], dim=0)
+            seg_anchor = torch.cat([seg, seg_anchor], dim=0)
         
         goal_action_pc = goal_action_pc - center
         anchor_pc = anchor_pc - center
@@ -143,8 +181,10 @@ class DedoDataset(data.Dataset):
         item["T_goal2world"] = T_goal2world.get_matrix().squeeze(0)
         item["T_action2world"] = T_action2world.get_matrix().squeeze(0)
         # TODO: eventually, remove "seg" keys
-        item["seg"] = torch.ones_like(action_pc[:, 0]).int()
-        item["seg_anchor"] = torch.ones_like(anchor_pc[:, 0]).int()
+        #item["seg"] = torch.ones_like(action_pc[:, 0]).int()
+        #item["seg_anchor"] = torch.ones_like(anchor_pc[:, 0]).int()
+        item["seg"] = seg
+        item["seg_anchor"] = seg_anchor
 
         # handle relative pose
         if self.dataset_cfg.rel_pose:
