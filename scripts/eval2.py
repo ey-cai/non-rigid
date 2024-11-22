@@ -134,7 +134,9 @@ def main(cfg):
         num_samples = cfg.inference.num_wta_trials // bs
         num_batches = len(dataset) // bs
         eval_keys = ["pc_action", "pc_anchor", "pc", "flow", "seg", "seg_anchor", "T_action2world", "T_goal2world"]
-
+        if cfg.model.rel_pose:
+            eval_keys.append("rel_pose")
+            
         rmse = []
         coverage = []
         precision = []
