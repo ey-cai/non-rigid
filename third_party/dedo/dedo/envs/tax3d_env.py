@@ -199,6 +199,7 @@ class Tax3dEnv(gym.Env):
         self.deform_obj = res['deform_obj']
         self.rigid_ids = res['rigid_ids']
         self.goal_pos = res['goal_poses']
+        self.goal_anchor_positions = res['goal_anchor_positions']
 
         # Updating point cloud observation variables.
         self.pcd_view_mat = self._cam_viewmat
@@ -404,8 +405,9 @@ class Tax3dEnv(gym.Env):
         # and large forces.
         # release_anchor(self.sim, self.anchor_ids[0])
         # release_anchor(self.sim, self.anchor_ids[1])
-        change_anchor_color_gray(self.sim, self.anchor_ids[0])
-        change_anchor_color_gray(self.sim, self.anchor_ids[1])
+        
+        # change_anchor_color_gray(self.sim, self.anchor_ids[0])
+        # change_anchor_color_gray(self.sim, self.anchor_ids[1])
         info = {'final_obs': []}
         for sim_step in range(Tax3dEnv.STEPS_AFTER_DONE):
             # For lasso pull the string at the end to test lasso loop.

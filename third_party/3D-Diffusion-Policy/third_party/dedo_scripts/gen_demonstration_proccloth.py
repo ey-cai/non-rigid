@@ -222,7 +222,6 @@ if __name__ == '__main__':
                     deform_params=deform_params,
                     rigid_params=rigid_params,
                 )
-                breakpoint()
 
                 # initializing tax3d demo
                 tax3d_demo = {

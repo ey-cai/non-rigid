@@ -1345,9 +1345,9 @@ ROBOT_INFO = {
         'ee_link_name': 'panda_hand_r',
         'left_ee_joint_name': 'panda_joint7_l',
         'left_ee_link_name': 'panda_hand_l',
-        'global_scaling': 15.0,
+        'global_scaling': 30.0,
         'use_fixed_base': True,
-        'base_pos': np.array([5.0, 1.5, 0]),
+        'base_pos': np.array([15.0, 1.5, 0]),
         'rest_arm_qpos': np.array(
             [-0.7332, -0.0135, 0.1112, -0.718, 0.0978, 1.99, -0.5592]),
         'left_rest_arm_qpos': np.array(
@@ -1357,7 +1357,7 @@ ROBOT_INFO = {
         'file_name': 'franka/franka_small_fingers.urdf',
         'ee_joint_name': 'panda_joint7',
         'ee_link_name': 'panda_hand',
-        'global_scaling': 15.0,
+        'global_scaling': 30.0,
         'use_fixed_base': True,
         'base_pos': np.array([5.0, 1.5, 0]),
         'rest_arm_qpos': np.array(

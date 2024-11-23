@@ -82,16 +82,9 @@ class Tax3dProcClothEnv(Tax3dEnv):
             args.data_path, self.get_texture_path(args.deform_texture_file)
         )
 
-        # Transform the deformable object, if necessary.
+        # Load the deformable object.
         deform_position = args.deform_init_pos
         deform_orientation = args.deform_init_ori
-        if 'rotation' in self.deform_transform and 'translation' in self.deform_transform:
-            # TODO: implement this
-            raise NotImplementedError('Rotation and translation not yet supported.')
-        elif self.deform_transform:
-            raise ValueError('Deformable transformation must specify rotation and translation.')
-
-        # Load the deformable object.
         deform_id = load_deform_object(
             self.sim, deform_obj, deform_texture_path, args.deform_scale,
             deform_position, deform_orientation,
@@ -122,12 +115,12 @@ class Tax3dProcClothEnv(Tax3dEnv):
             # Transform the rigid object, if necessary.
             rigid_position = kwargs['basePosition']
             rigid_orientation = kwargs['baseOrientation']
-            if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
-                rigid_rotation = R.from_euler('xyz', self.rigid_transform['rotation'])
-                rigid_translation = self.rigid_transform['translation']
-                # Apply the transformation.
-                rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
-                rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
+            # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
+            #     rigid_rotation = R.from_euler('xyz', self.rigid_transform['rotation'])
+            #     rigid_translation = self.rigid_transform['translation']
+            #     # Apply the transformation.
+            #     rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
+            #     rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
             
             # Load the rigid object.
             id = load_rigid_object(
@@ -138,12 +131,68 @@ class Tax3dProcClothEnv(Tax3dEnv):
             )
             rigid_ids.append(id)
         
+        # ----------------- SETTING UP GOAL POSITION -----------------
         # Mark the goal and store intermediate info for reward computations.
         goal_poses = scene_info_copy['goal_pos']
+        # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
+        #     goal_poses = [
+        #         R.from_euler('xyz', self.rigid_transform['rotation']).apply(goal_pos) + self.rigid_transform['translation']
+        #         for goal_pos in goal_poses
+        #     ]
+        # ----------------- COMPUTING GOAL POSITIONS PRE-TRANSFORMATION -----------------
+        _, vertex_positions = get_mesh_data(self.sim, deform_id)
+        vertex_positions = np.array(vertex_positions)
+        # NOTE: the order here is dependent on DEFORM_INFO - arbitrary object transformations could result in cloth-flipping
+        # NOTE: this also means we should be careful about which gripper we attach to which anchor
+        anchor_vertices = DEFORM_INFO[deform_obj]['deform_anchor_vertices']
+        goal_anchor_positions = []
+        
+        for hole_id in range(self.deform_params["num_holes"]):
+            hole_vertices = self.args.deform_true_loop_vertices[hole_id]
+            centroid_points = vertex_positions[hole_vertices]
+            centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
+            centroid = centroid_points.mean(axis=0)
+
+            flow = goal_poses[hole_id] - centroid
+
+            # compute the goal positions for each anchor
+            hole_goal_anchor_positions = []
+            for anchor in range(self.num_anchors):
+                anchor_pos = vertex_positions[anchor_vertices[anchor]]
+                # small offset to make sure the gripper goes past the hanger
+                goal_anchor_pos = anchor_pos + flow + np.array([0, -0.5, 0])
+                hole_goal_anchor_positions.append(goal_anchor_pos)
+            goal_anchor_positions.append(hole_goal_anchor_positions)
+
+
+        # ----------------- TRANSFORMING ALL OBJECTS AND GOALS -----------------
+        # Transform the deformable object, if necessary.
+        if 'rotation' in self.deform_transform and 'translation' in self.deform_transform:
+            # TODO: implement this
+            raise NotImplementedError('Rotation and translation not yet supported.')
+        elif self.deform_transform:
+            raise ValueError('Deformable transformation must specify rotation and translation.')
+        
+        # Transform the rigid objects and goals, if necessary.
         if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
+            rigid_rotation = R.from_euler('xyz', self.rigid_transform['rotation'])
+            rigid_translation = self.rigid_transform['translation']
+            # Apply the transformation to the rigid objects.
+            for i, (name, kwargs) in enumerate(scene_info_copy['entities'].items()):
+                rigid_position = kwargs['basePosition']
+                rigid_orientation = kwargs['baseOrientation']
+                rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
+                rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
+                self.sim.resetBasePositionAndOrientation(rigid_ids[i], rigid_position, pybullet.getQuaternionFromEuler(rigid_orientation))
+
+            # Apply the transformation to the goal data.
             goal_poses = [
-                R.from_euler('xyz', self.rigid_transform['rotation']).apply(goal_pos) + self.rigid_transform['translation']
+                rigid_rotation.apply(goal_pos) + rigid_translation
                 for goal_pos in goal_poses
+            ]
+            goal_anchor_positions = [
+                [rigid_rotation.apply(anchor_goal) + rigid_translation for anchor_goal in hole_goal_anchor_positions]
+                for hole_goal_anchor_positions in goal_anchor_positions
             ]
         
         return {
@@ -151,6 +200,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
             'deform_obj': deform_obj,
             'rigid_ids': rigid_ids,
             'goal_poses': np.array(goal_poses),
+            'goal_anchor_positions': goal_anchor_positions,
         }
 
 
