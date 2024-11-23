@@ -134,6 +134,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
         # ----------------- SETTING UP GOAL POSITION -----------------
         # Mark the goal and store intermediate info for reward computations.
         goal_poses = scene_info_copy['goal_pos']
+        goal_poses = np.vstack([goal_poses, goal_poses])
         # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
         #     goal_poses = [
         #         R.from_euler('xyz', self.rigid_transform['rotation']).apply(goal_pos) + self.rigid_transform['translation']

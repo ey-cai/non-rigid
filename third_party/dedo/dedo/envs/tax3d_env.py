@@ -211,8 +211,8 @@ class Tax3dEnv(gym.Env):
 
         # Special case for Procedural Cloth tasks that can have two holes:
         # reward is based on the closest hole.
-        if 'HangProcCloth' in self.args.env:
-            self.goal_pos = np.vstack((self.goal_pos, self.goal_pos))
+        # if 'HangProcCloth' in self.args.env:
+        #     self.goal_pos = np.vstack((self.goal_pos, self.goal_pos))
 
         self.sim.stepSimulation() # step once to get initial state
 
