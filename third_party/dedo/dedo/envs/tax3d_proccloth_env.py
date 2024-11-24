@@ -161,7 +161,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
             for anchor in range(self.num_anchors):
                 anchor_pos = vertex_positions[anchor_vertices[anchor]]
                 # small offset to make sure the gripper goes past the hanger
-                goal_anchor_pos = anchor_pos + flow + np.array([0, -0.5, 0])
+                goal_anchor_pos = anchor_pos + flow + np.array([0, -1.0, 0])
                 hole_goal_anchor_positions.append(goal_anchor_pos)
             goal_anchor_positions.append(hole_goal_anchor_positions)
 
