@@ -29,6 +29,15 @@ jobs:
       - name: Install DP3.
         run: pip install -e third_party/3D-Diffusion-Policy/3D-Diffusion-Policy
 
+      - name: Install mkdocs
+        run: pip install mkdocs
+        
+      - name: Update pip and setuptools.
+        run: pip install --upgrade pip==23.3.1 setuptools==65.5
+      
+      - name: Install torch dependencies.
+        run: pip install -r requirements-gpu.txt
+
       - name: Install Dependencies
         run: pip install -e ".[build_docs]"
 

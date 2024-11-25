@@ -13,14 +13,15 @@ import torch_geometric.transforms as tgt
 import torchvision as tv
 import wandb
 from diffusers import get_cosine_schedule_with_warmup
-from pytorch3d.transforms import Transform3d
+from pytorch3d.transforms import Transform3d, Translate
+from pytorch3d.transforms import matrix_to_quaternion, matrix_to_rotation_6d
 from torch import nn, optim
 from torch_geometric.nn import fps
 
 from non_rigid.metrics.error_metrics import get_pred_pcd_rigid_errors
 from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pc_nn
 from non_rigid.models.dit.diffusion import create_diffusion
-from non_rigid.models.dit.models import DiT_PointCloud_Unc as DiT_pcu
+# from non_rigid.models.dit.models import DiT_PointCloud_Unc as DiT_pcu
 from non_rigid.models.dit.models import (
     DiT_PointCloud_Unc_Cross,
     Rel3D_DiT_PointCloud_Unc_Cross,
@@ -428,6 +429,92 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
             "rmse_wta": pred_wta_dict["rmse_wta"],
         }
     
+    def predict_obs(self, obs, run_cfg):
+        """
+        Predict for a single observation. Note: the input run_cfg is very different from self.run_cfg...sigh...
+        """
+        # TODO: right now, this needs to take the configs, becuase some model-specific configs 
+        # are actually specified in the dataset config - eventually, these should be moved over 
+        
+        # process input observation based on the dataset and model configs
+        action_pc = obs["pc_action"]
+        anchor_pc = obs["pc_anchor"]
+        action_seg = obs["seg"]
+        anchor_seg = obs["seg_anchor"]
+
+        if run_cfg.dataset.scene:
+            # scene-level processing
+            scene_pc = torch.cat([action_pc, anchor_pc], dim=1)
+            scene_seg = torch.cat([action_seg, anchor_seg], dim=1)
+
+            # center the point cloud
+            scene_center = scene_pc.mean(dim=1)
+            scene_pc = scene_pc - scene_center
+            T_goal2world = Translate(scene_center).get_matrix()
+
+            item = {
+                "pc_action": scene_pc,
+                "seg": scene_seg,
+                "T_goal2world": T_goal2world,
+            }
+        else:
+            # object-centric processing
+            if run_cfg.dataset.world_frame:
+                action_center = torch.zeros(3, dtype=torch.float32, device=self.device).unsqueeze(0)
+                anchor_center = torch.zeros(3, dtype=torch.float32, device=self.device).unsqueeze(0)
+            else:
+                action_center = action_pc.mean(dim=1)
+                anchor_center = anchor_pc.mean(dim=1)
+            
+            # check for scene anchor
+            if run_cfg.dataset.scene_anchor:
+                anchor_pc = torch.cat([action_pc, anchor_pc], dim=1)
+                anchor_seg = torch.cat([action_seg, anchor_seg], dim=1)
+                # if scene anchor center, center the anchor point cloud in the scene
+                if run_cfg.dataset.scene_anchor_center:
+                    anchor_center = anchor_pc.mean(dim=1)
+            
+            # center the point clouds
+            action_pc = action_pc - action_center
+            anchor_pc = anchor_pc - anchor_center
+            T_action2world = Translate(action_center)
+            T_goal2world = Translate(anchor_center)
+
+            item = {
+                "pc_action": action_pc,
+                "pc_anchor": anchor_pc,
+                "seg": action_seg,
+                "seg_anchor": anchor_seg,
+                "T_action2world": T_action2world.get_matrix(),
+                "T_goal2world": T_goal2world.get_matrix(),
+            }
+
+            # if relative action-anchor pose, add the relative transform
+            if run_cfg.dataset.rel_pose:
+                rel_pose = T_action2world.compose(T_goal2world.inverse())
+                # converting relative pose based on representation type
+                if run_cfg.dataset.rel_pose_type == "quaternion":
+                    translation = rel_pose.get_matrix()[:, 3, :3]
+                    rotation = matrix_to_quaternion(rel_pose.get_matrix()[:, :3, :3])
+                    rel_pose = torch.cat([translation, rotation], dim=1)
+                elif run_cfg.dataset.rel_pose_type == "rotation_6d":
+                    translation = rel_pose.get_matrix()[:, 3, :3]
+                    rotation = matrix_to_rotation_6d(rel_pose.get_matrix()[:, :3, :3])
+                    rel_pose = torch.cat([translation, rotation], dim=1)
+                elif run_cfg.dataset.rel_pose_type == "logmap":
+                    rel_pose = rel_pose.get_se3_log()
+                item["rel_pose"] = rel_pose
+
+        pred_dict = self.predict(item, run_cfg.inference.num_trials, progress=False)
+        pred_action = pred_dict["point"]["pred_world"]
+        results_world = pred_dict["results_world"]
+
+        # masking out non-action points in scene-level processing
+        if run_cfg.dataset.scene:
+            pred_action = pred_action[:, scene_seg.squeeze().bool(), :]
+            results_world = [res[:, scene_seg.squeeze(0).bool(), :] for res in results_world]
+
+        return pred_action, results_world
 
 
 class SceneDisplacementModule(DenseDisplacementDiffusionModule):
@@ -493,6 +580,13 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
         pc_action = pc_action.permute(0, 2, 1) # channel first
         pc_anchor = pc_anchor.permute(0, 2, 1) # channel first
         model_kwargs = dict(x0=pc_action, y=pc_anchor)
+
+        # check for relative action-anchor pose
+        if self.model_cfg.rel_pose:
+            rel_pose = batch["rel_pose"].to(self.device)
+            if num_samples is not None:
+                rel_pose = expand_pcd(rel_pose, num_samples)
+            model_kwargs["rel_pose"] = rel_pose
         return model_kwargs
     
     def get_world_preds(self, batch, num_samples, pc_action, pred_dict):

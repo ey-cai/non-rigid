@@ -15,6 +15,7 @@ import torch_geometric.transforms as tgt
 from pathlib import Path
 import os
 from pytorch3d.transforms import Transform3d, Translate
+from pytorch3d.transforms import matrix_to_quaternion, matrix_to_rotation_6d
 
 from non_rigid.utils.transform_utils import random_se3
 from non_rigid.utils.pointcloud_utils import downsample_pcd
@@ -375,10 +376,21 @@ class DeformablePlacementDataset(data.Dataset):
             self.size = self.num_demos
 
         # setting sample sizes
-        self.scene = self.dataset_cfg.scene
         self.sample_size_action = self.dataset_cfg.sample_size_action
         self.sample_size_anchor = self.dataset_cfg.sample_size_anchor
+
+        # additional dataset params
+        self.scene = self.dataset_cfg.scene
+        self.scene_anchor = self.dataset_cfg.scene_anchor
+        self.scene_anchor_center = self.dataset_cfg.scene_anchor_center
         self.world_frame = self.dataset_cfg.world_frame
+        
+        # scene and scene-anchor checks
+        if self.scene and self.scene_anchor:
+            raise ValueError("Cannot have both scene and anchor scene.")
+        # scene-anchor center check
+        if self.scene_anchor_center and not self.scene_anchor:
+            raise ValueError("Scene-anchor center requires scene-anchor.")
 
     def __len__(self):
         return self.size
@@ -396,35 +408,18 @@ class DeformablePlacementDataset(data.Dataset):
 
         # initializing item with source-dependent fields
         if self.dataset_cfg.source == "dedo":
-            # speed_factor = torch.as_tensor(demo["speed_factor"]).float()
-            # rot = torch.as_tensor(demo["rot"]).float()
-            # trans = torch.as_tensor(demo["trans"]).float()
-            # deform_params = demo["deform_params"].item()
-
             item = {
                 "rot": torch.as_tensor(demo["rot"]).float(),
                 "trans": torch.as_tensor(demo["trans"]).float(),
                 "deform_params": demo["deform_params"].item(),
             }
         elif self.dataset_cfg.source == "real":
-            # speed_factor = torch.ones(1)
-            # rot = torch.zeros(3)
-            # trans = torch.zeros(3)
-
             item = {
                 "rot": torch.zeros(3),
                 "trans": torch.zeros(3),
             }
         else:
             raise ValueError(f"Unknown source: {self.dataset_cfg.source}")
-        
-        # initializing item
-        # item = {
-        #     "rot": rot,
-        #     "trans": trans,
-        #     "deform_params": deform_params,
-        #     # "speed_factor": speed_factor,
-        # }
 
         # downsample action
         if self.sample_size_action > 0 and action_pc.shape[0] > self.sample_size_action:
@@ -503,6 +498,16 @@ class DeformablePlacementDataset(data.Dataset):
             else:
                 raise ValueError(f"Unknown action context center type: {self.dataset_cfg.action_context_center_type}")
             
+            
+            # handle scene-anchor processing
+            if self.scene_anchor:
+                anchor_pc = torch.cat([action_pc, anchor_pc], dim=0)
+                anchor_seg = torch.cat([action_seg, anchor_seg], dim=0)
+                # if scene_anchor_center, center the anchor point cloud in the scene
+                if self.scene_anchor_center:
+                    center = anchor_pc.mean(axis=0)
+
+
             goal_action_pc = goal_action_pc - center
             anchor_pc = anchor_pc - center
             action_pc = action_pc - action_center
@@ -541,6 +546,22 @@ class DeformablePlacementDataset(data.Dataset):
             item["flow"] = gt_flow
             item["T_goal2world"] = T_goal2world.get_matrix().squeeze(0)
             item["T_action2world"] = T_action2world.get_matrix().squeeze(0)
+
+            # if relative action-anchor pose, add the relative transform
+            if self.dataset_cfg.rel_pose:
+                rel_pose = T_action2world.compose(T_goal2world.inverse())
+                # converting relative pose based on representation type
+                if self.dataset_cfg.rel_pose_type == "quaternion":
+                    translation = rel_pose.get_matrix().squeeze(0)[3, :3]
+                    rotation = matrix_to_quaternion(rel_pose.get_matrix().squeeze(0)[:3, :3])
+                    rel_pose = torch.cat([translation, rotation])
+                elif self.dataset_cfg.rel_pose_type == "rotation_6d":
+                    translation = rel_pose.get_matrix().squeeze(0)[3, :3]
+                    rotation = matrix_to_rotation_6d(rel_pose.get_matrix().squeeze(0)[:3, :3])
+                    rel_pose = torch.cat([translation, rotation])
+                elif self.dataset_cfg.rel_pose_type == "logmap":
+                    rel_pose = rel_pose.get_se3_log().squeeze(0)
+                item["rel_pose"] = rel_pose
         return item
 
 

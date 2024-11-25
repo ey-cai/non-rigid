@@ -32,6 +32,7 @@ from non_rigid.models.tax3d import (
 )
 
 from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
+from non_rigid.datasets.dedo import DedoDataModule
 
 
 PROJECT_ROOT = str(pathlib.Path(__file__).parent.parent.parent.parent.resolve())
@@ -101,14 +102,27 @@ def create_model(cfg):
 
 def create_datamodule(cfg):
     # check that dataset and model types are compatible
-    if cfg.model.type != cfg.dataset.type:
-        raise ValueError(
-            f"Model type: '{cfg.model.type}' and dataset type: '{cfg.dataset.type}' are incompatible."
-        )
+    # if cfg.model.type != cfg.dataset.type:
+    #     raise ValueError(
+    #         f"Model type: '{cfg.model.type}' and dataset type: '{cfg.dataset.type}' are incompatible."
+    #     )
+    # set scene-specific configs based on model
+    # if "rel_pose" in cfg.model:
+    cfg.dataset.scene_anchor = cfg.model.scene_anchor
+    cfg.dataset.rel_pose = cfg.model.rel_pose
+    cfg.dataset.rel_pose_type = cfg.model.rel_pose_type
+    cfg.dataset.center_type = cfg.model.center_type
+    cfg.dataset.action_context_center_type = cfg.model.action_context_center_type
+
+    # TODO: eventually, probably better to override the other dataset cfgs 
+    # based on model-specific params from model cfg
+
 
     # check dataset name
     if cfg.dataset.name == "proc_cloth":
         datamodule_fn = ProcClothFlowDataModule
+    elif cfg.dataset.name == "dedo":
+        datamodule_fn = DedoDataModule
     else:
         raise ValueError(f"Invalid dataset name: {cfg.dataset.name}")
 

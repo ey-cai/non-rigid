@@ -69,6 +69,32 @@ class TimestepEmbedder(nn.Module):
         t_emb = self.mlp(t_freq)
         return t_emb
 
+class RelativePoseEmbedder(nn.Module):
+    """
+    Embeds relative poses into vector representations.
+    """
+    def __init__(self, hidden_size, rel_pose_type):
+        super().__init__()
+        if rel_pose_type == "quaternion":
+            input_size = 7
+        elif rel_pose_type == "rotation_6d":
+            input_size = 9
+        elif rel_pose_type == "logmap":
+            input_size = 6
+        elif rel_pose_type == "translation":
+            input_size = 3
+        else:
+            raise ValueError(f"Unknown relative pose rotation type: {rel_pose_type}")
+        self.hidden_size = hidden_size
+        self.mlp = nn.Sequential(
+            nn.Linear(input_size, hidden_size, bias=True),
+            nn.SiLU(),
+            nn.Linear(hidden_size, hidden_size, bias=True),
+        )
+    
+    def forward(self, poses):
+        return self.mlp(poses)
+
 
 class LabelEmbedder(nn.Module):
     """
@@ -644,90 +670,7 @@ class LinearRegressionModel(nn.Module):
         return x
 
 
-### CREATING NEW DiT (unconditional) FOR POINT CLOUD INPUTS ###
-class DiT_PointCloud_Unc(nn.Module):
-    """
-    Diffusion model with a Transformer backbone - point cloud, unconditional.
-    """
-    def __init__(
-        self,
-        in_channels=3,
-        hidden_size=1152,
-        depth=28,
-        num_heads=16,
-        mlp_ratio=4.0,
-        learn_sigma=True,
-        model_cfg=None,
-    ):
-        super().__init__()
-        self.learn_sigma = learn_sigma
-        self.in_channels = in_channels
-        # self.out_channels = in_channels * 2 if learn_sigma else in_channels
-        self.out_channels = 6 if learn_sigma else 3
-        self.num_heads = num_heads
-        # x_embedder is conv1d layer instead of 2d patch embedder
-        self.x_embedder = nn.Conv1d(in_channels, hidden_size, kernel_size=1, stride=1, padding=0, bias=True)
-        # no pos_embed, or y_embedder
-        self.t_embedder = TimestepEmbedder(hidden_size)
-        self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
-        ])
-        # functionally setting patch size to 1 for a point cloud
-        self.final_layer = FinalLayer(hidden_size, 1, self.out_channels)
-        self.initialize_weights()
-
-    def initialize_weights(self):
-        # Initialize transformer layers:
-        def _basic_init(module):
-            if isinstance(module, nn.Linear):
-                torch.nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-        self.apply(_basic_init)
-
-        # Initialize x_embed like nn.Linear (instead of nn.Conv2d):
-        w = self.x_embedder.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.bias, 0)
-
-        # Initialize timestep embedding MLP:
-        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
-
-        # Zero-out adaLN modulation layers in DiT blocks:
-        for block in self.blocks:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-
-        # Zero-out output layers:
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.final_layer.linear.weight, 0)
-        nn.init.constant_(self.final_layer.linear.bias, 0)
-
-    def forward(
-            self, 
-            x: torch.Tensor, 
-            t: torch.Tensor, 
-            x0: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Forward pass of DiT.
-        x: (N, L, 3) tensor of spatial inputs (point clouds)
-        t: (N,) tensor of diffusion timesteps
-        """
-        # concat x and pos
-        x = torch.cat((x, x0), dim=1)
-        x = torch.transpose(self.x_embedder(x), -1, -2)
-        c = self.t_embedder(t)
-
-        for block in self.blocks:
-            x = block(x, c)
-        x = self.final_layer(x, c)
-        x = torch.transpose(x, -1, -2)
-        return x
-
-
+# Custom point cloud DiT for TAX3D
 class DiT_PointCloud(nn.Module):
     """
     Diffusion Transformer adapted for point cloud inputs. Uses scene-level self-attention.
@@ -853,7 +796,7 @@ class DiT_PointCloud(nn.Module):
         x = torch.transpose(x, -1, -2)
         return x
     
-
+# Custom poitn cloud DiT with cross attention for TAX3D
 class DiT_PointCloud_Cross(nn.Module):
     """
     Diffusion Transformer adapted for point cloud inputs. Uses object-centric cross attention.
@@ -940,6 +883,12 @@ class DiT_PointCloud_Cross(nn.Module):
         # Timestamp embedding
         self.t_embedder = TimestepEmbedder(hidden_size)
 
+        # Relative action-anchor pose embedding, if enabled
+        if self.model_cfg.rel_pose:
+            self.pose_embedder = RelativePoseEmbedder(hidden_size, self.model_cfg.rel_pose_type)
+        else:
+            self.pose_embedder = None
+
         # DiT blocks
         block_fn = DiTRelativeCrossBlock if self.model_cfg.rotary else DiTCrossBlock
         self.blocks = nn.ModuleList(
@@ -972,6 +921,11 @@ class DiT_PointCloud_Cross(nn.Module):
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
 
+        # Initialize rel pose embedding MLP:
+        if self.pose_embedder is not None:
+            nn.init.normal_(self.pose_embedder.mlp[0].weight, std=0.02)
+            nn.init.normal_(self.pose_embedder.mlp[2].weight, std=0.02)
+
         # Zero-out adaLN modulation layers in DiT blocks:
         for block in self.blocks:
             nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
@@ -989,6 +943,7 @@ class DiT_PointCloud_Cross(nn.Module):
             t: torch.Tensor,
             y: torch.Tensor,
             x0: Optional[torch.Tensor] = None,
+            rel_pose: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Forward pass of DiT with scene cross attention.
@@ -998,6 +953,7 @@ class DiT_PointCloud_Cross(nn.Module):
             t (torch.Tensor): (B,) tensor of diffusion timesteps
             y (torch.Tensor): (B, D, N) tensor of un-noised scene (e.g. anchor) features
             x0 (Optional[torch.Tensor]): (B, D, N) tensor of un-noised x (e.g. action) features
+            rel_pose (Optional[torch.Tensor]): (B, Dp, N) tensor of relative poses between x0 and y
         """
         # noise-centering, if enabled
         if self.model_cfg.center_noise:
@@ -1025,17 +981,23 @@ class DiT_PointCloud_Cross(nn.Module):
         x = x_emb.permute(0, 2, 1)
 
         # timestep embedding
-        t_emb = self.t_embedder(t)
+        c = self.t_embedder(t)
+
+        # relative pose embedding
+        if self.model_cfg.rel_pose:
+            assert rel_pose is not None, "relative poses must be provided if rel_pose is enabled"
+            rel_pose_emb = self.pose_embedder(rel_pose)
+            c = c + rel_pose_emb
 
         # forward pass through DiT blocks
         for block in self.blocks:
             if self.model_cfg.rotary:
-                x = block(x, y_emb, t_emb, x_pos, y_pos)
+                x = block(x, y_emb, c, x_pos, y_pos)
             else:
-                x = block(x, y_emb, t_emb)
+                x = block(x, y_emb, c)
 
         # final layer
-        x = self.final_layer(x, t_emb)
+        x = self.final_layer(x, c)
         x = x.permute(0, 2, 1)
         return x
 

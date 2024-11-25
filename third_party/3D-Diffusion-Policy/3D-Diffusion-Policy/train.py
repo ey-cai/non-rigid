@@ -34,6 +34,7 @@ from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 
 from diffusion_policy_3d.policy.tax3d import TAX3D
 
+from non_rigid.utils.script_utils import load_checkpoint_config_from_wandb
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -594,7 +595,7 @@ class EvalTAX3DWorkspace:
         self.cfg = cfg
         self._output_dir = output_dir
         self._saving_thread = None
-
+        # don't need to worry about ema, optimizer, global step, or epoch
         device = cfg.training.device
         # set seed
         seed = cfg.training.seed
@@ -602,29 +603,48 @@ class EvalTAX3DWorkspace:
         np.random.seed(seed)
         random.seed(seed)
 
-        # don't need to worry about ema, optimizer, global step, or epoch
+        # load default model and dataset config from TAX3D - this ensures config structure is up-to-date
         checkpoint_run_id = cfg.exp_name.split("-")[-1]
-        project_dir = f"{cfg.logging.entity}/{cfg.logging.project}"
-        # grabbing config from wandb
-        api = wandb.Api()
-        run_config = api.run(f"{project_dir}/{checkpoint_run_id}").config
-        self.run_config = OmegaConf.create(run_config)
+        tax3d_cfg_dir = pathlib.Path(__file__).parent.parent.parent.parent.resolve() / 'configs'
+        dataset_cfg = OmegaConf.load(tax3d_cfg_dir / 'dataset' / 'proc_cloth.yaml')
+        model_cfg = OmegaConf.load(tax3d_cfg_dir / 'model' / 'df_base.yaml')
+        base_cfg = OmegaConf.create({'mode': 'eval', 'dataset': dataset_cfg, 'model': model_cfg})
 
-        # grabbing checkpoint reference from exp_name
+        # TODO: eventually, may need to read task overrides here? e.g. if we want to eval 
+        # on a different dataset than what we trained on
+        self.run_cfg = load_checkpoint_config_from_wandb(base_cfg, [], cfg.logging.entity, cfg.logging.project, checkpoint_run_id)
+        
+        # also grabbing checkpoint file
+        project_dir = f"{cfg.logging.entity}/{cfg.logging.project}"
         checkpoint_reference = f"{project_dir}/model-{checkpoint_run_id}:v0"
-        artifact_dir = cfg.checkpoint.artifact_dir
-        artifact = api.artifact(checkpoint_reference, type='model')
-        ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
-        self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_config)
+        artifact = wandb.Api().artifact(checkpoint_reference, type='model')
+        ckpt_file = artifact.get_path("model.ckpt").download(root=cfg.checkpoint.artifact_dir)
+        self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_cfg)
+
+        # # grabbing config from wandb
+        # api = wandb.Api()
+        # run_config = api.run(f"{project_dir}/{checkpoint_run_id}").config
+        # self.run_config = OmegaConf.create(run_config)
+
+        # # hack for now, to get proper dataset dir
+        # self.run_config.dataset.data_dir = cfg.task.dataset.root_dir
+
+        
+        # # grabbing checkpoint reference from exp_name
+        # checkpoint_reference = f"{project_dir}/model-{checkpoint_run_id}:v0"
+        # artifact_dir = cfg.checkpoint.artifact_dir
+        # artifact = api.artifact(checkpoint_reference, type='model')
+        # ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+        # self.model: TAX3D = TAX3D(ckpt_file, device, cfg, self.run_config)
 
     def eval_datasets(self):
         # extract dataset params from training config
-        cloth_geometry = self.run_config.dataset.cloth_geometry
-        cloth_pose = self.run_config.dataset.cloth_pose
-        anchor_geometry = self.run_config.dataset.anchor_geometry
-        anchor_pose = self.run_config.dataset.anchor_pose
-        hole = self.run_config.dataset.hole
-        dataset_dir = self.run_config.dataset.data_dir
+        cloth_geometry = self.run_cfg.dataset.cloth_geometry
+        cloth_pose = self.run_cfg.dataset.cloth_pose
+        anchor_geometry = self.run_cfg.dataset.anchor_geometry
+        anchor_pose = self.run_cfg.dataset.anchor_pose
+        hole = self.run_cfg.dataset.hole
+        dataset_dir = self.run_cfg.dataset.data_dir
 
         if self.cfg.inference.override_dataset:
             cprint(f"Overriding dataset params from task config.", 'red')
@@ -669,10 +689,9 @@ class EvalTAX3DWorkspace:
         split = cfg.task.inference.split
         dataset = DedoDataset(dataset_dir + f"/{split}_tax3d")
 
-        # configure env
-        # for TAX3D, horizon is 1
-        cfg.task.env_runner.n_obs_steps = 1
-        cfg.task.env_runner.n_action_steps = 1
+        # configure env - for TAX3D, horizon is 1
+        if cfg.task.env_runner.n_obs_steps != 1:
+            raise ValueError("TAX3D only supports horizon=1")
 
         env_runner: BaseRunner
         env_runner = hydra.utils.instantiate(
