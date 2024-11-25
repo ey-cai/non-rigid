@@ -15,7 +15,7 @@ shift
 COMMAND=$@
 
 echo "Evaluating model at checkpoint $CHECKPOINT with command: $COMMAND."
-python eval.py \
+python eval2.py \
     resources.gpus=[${GPU_INDEX}] \
     checkpoint.run_id=${CHECKPOINT} \
     $COMMAND
