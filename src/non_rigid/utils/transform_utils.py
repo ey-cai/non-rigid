@@ -1,15 +1,16 @@
+from typing import List, Tuple, cast
+
 import numpy as np
+import torch
+from pytorch3d.common.datatypes import Optional
 from pytorch3d.transforms import (
-    Transform3d,
     Rotate,
+    Transform3d,
     axis_angle_to_matrix,
     quaternion_to_matrix,
     so3_rotation_angle,
 )
 from scipy.spatial.transform import Rotation as R
-import torch
-import torch.nn.functional as F
-from typing import Tuple, List
 
 
 def random_se3(
@@ -17,7 +18,7 @@ def random_se3(
     rot_var: float = np.pi / 180 * 5,
     trans_var: float = 0.1,
     rot_sample_method: str = "axis_angle",
-    device: str = None,
+    device: Optional[str] = None,
 ) -> Transform3d:
     """
     Generates random transforms in SE(3) space.
@@ -141,7 +142,7 @@ def symmetric_orthogonalization(M: torch.Tensor) -> torch.Tensor:
     det = torch.det(torch.bmm(U, Vh)).view(-1, 1, 1)
     Vh = torch.cat((Vh[:, :2, :], Vh[:, -1:, :] * det), 1)
     R = U @ Vh
-    return R
+    return cast(torch.Tensor, R)
 
 
 def flow_to_tf(
@@ -282,10 +283,10 @@ def get_transform_list_min_translation_errors(
 def matrix_from_list(pose_list: List[float]) -> np.ndarray:
     """
     Convert a list of pose parameters to a 4x4 matrix.
-    
+
     Args:
         pose_list: List of pose parameters [tx, ty, tz, qx, qy, qz, qw]
-        
+
     Returns:
         np.ndarray: 4x4 matrix
     """

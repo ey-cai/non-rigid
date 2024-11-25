@@ -1,0 +1,43 @@
+name: dedo
+data_dir: "~/Documents/data/"
+task: proccloth
+
+train_size: null # (int, null) Length of the train dataset
+val_size: null # (int, null) Length of the validation dataset
+
+sample_size_action: 512
+sample_size_anchor: 512
+downsample_type: fps
+
+# Model-based params - these are overridden by the model config
+# type: null # (flow, point) Type of model TODO: do we need this?
+scene: True # scene-level reasoning
+world_frame: null # world frame for scene/object
+scene_anchor: null # scene-level anchor; cannot be True if scene is True
+rel_pose: null # relative action-anchor pose
+rel_pose_type: null # (quaternion, rotation_6d, logmap, translation) rotation representation for relative action-anchor pose
+center_type: null # [action_center, anchor_center, scene_center, none], centers the point clouds
+action_context_center_type: null # [center, random, none], centers the action context point clouds
+
+# Environment-specific params
+cloth_geometry: single
+cloth_pose: fixed
+anchor_geometry: single
+anchor_pose: random
+hole: single
+
+# Dataset pre-processing options
+# center_type: anchor_center # [action_center, anchor_center, anchor_random, scene_center, none], centers the point clouds w.r.t. the action, anchor, or no centering
+# action_context_center_type: center # [center, random, none], centers the action context point clouds
+# pcd_scale_factor: 15.0 # Scale factor for the point clouds
+action_transform_type: identity # Transformation type to apply to demonstrations
+anchor_transform_type: random_flat_upright # Transformation type to apply to demonstrations
+translation_variance: 0.0 # Translation variance of the demo transformation
+rotation_variance: 180 # Rotation variance of the demo transformation
+
+
+# center_type: anchor_center # [action_center, anchor_center, scene_center, none], centers the point clouds w.r.t. the action, anchor, or no centering
+# action_context_center_type: center # [center, random, none], centers the action context point clouds
+scene_transform_type: identity # Transformation type to apply to the scene
+
+anchor_occlusion: False # Whether to randomly occlude the anchor during training
