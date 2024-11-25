@@ -240,6 +240,5 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
         left_ee_action = left_ee_action + left_ee_ori_offset + left_ee_z_offset + left_ee_xy_offset
         ee_action = clip_vec_mag(ee_action, 0.1)
         left_ee_action = clip_vec_mag(left_ee_action, 0.1)
-
-        return np.concatenate([ee_action, left_ee_action])
+        return np.concatenate([ee_action, left_ee_action], axis=-1).squeeze()
     
