@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument('--root_dir', type=str, default='~/data', help='directory to save data')
     parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run')
     parser.add_argument('--action_num_points', type=int, default=625, help='number of points in action point cloud')
-    parser.add_argument('--anchor_num_points', type=int, default=625, help='number of points in anchor point cloud')
+    parser.add_argument('--anchor_num_points', type=int, default=1024, help='number of points in anchor point cloud')
     parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
@@ -274,13 +274,19 @@ if __name__ == '__main__':
                     gripper_state = obs['gripper_state']
 
                     cloth_size = obs_action_pcd.shape[0]
-                    if action_num_points == 625 and random_cloth_geometry:
-                        # print('Padding action point cloud with zeroes')
-                        pad = np.zeros((action_num_points - obs_action_pcd.shape[0], 3))
-                        pad[:, :3] = obs_action_pcd[0]
+                    if cloth_size < action_num_points:
+                        # pad
+                        pad = np.zeros((action_num_points - cloth_size, 3))
                         obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
 
-                    obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
+                    # if action_num_points == 625 and random_cloth_geometry:
+                    #     # print('Padding action point cloud with zeroes')
+                    #     pad = np.zeros((action_num_points - obs_action_pcd.shape[0], 3))
+                    #     pad[:, :3] = obs_action_pcd[0]
+                    #     obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
+
+                    if obs_anchor_pcd.shape[0] > anchor_num_points:
+                        obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
 
                     # update episode data
                     action_pcd_arrays_sub.append(obs_action_pcd)

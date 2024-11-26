@@ -14,7 +14,9 @@ from pytorch3d.transforms import (
     Rotate,
     axis_angle_to_matrix,
 )
+import pytorch3d.ops as torch3d_ops
 
+from non_rigid.utils.pointcloud_utils import downsample_pcd
 import os
 
 def random_so2(N=1):
@@ -42,7 +44,9 @@ class DedoDataset(BaseDataset):
             anchor_pose='random',
             hole='single',
             goal_conditioning='ground_truth',
-            robot=True
+            robot=True,
+            action_size=512,
+            anchor_size=512,
             ):
         super().__init__()
         self.root_dir = root_dir
@@ -56,7 +60,8 @@ class DedoDataset(BaseDataset):
         self.hole = hole
         self.goal_conditioning = goal_conditioning
         self.robot = robot
-
+        self.action_size = action_size
+        self.anchor_size = anchor_size
 
         if self.random_augment:
             print('Training with random SO2 augment')
@@ -160,7 +165,7 @@ class DedoDataset(BaseDataset):
         # TODO: might have to convert action and anchor pcds into a single point cloud here
         agent_pos = sample['state'].astype(np.float32)
         action = sample['action'].astype(np.float32)
-        point_cloud = sample['point_cloud'].astype(np.float32)
+        # point_cloud = sample['point_cloud'].astype(np.float32)
         cloth = sample['cloth'].astype(np.int16)
         action_pcd = sample['action_pcd'].astype(np.float32)
         anchor_pcd = sample['anchor_pcd'].astype(np.float32)
@@ -168,7 +173,7 @@ class DedoDataset(BaseDataset):
 
         data = {
             'obs': {
-                'point_cloud': point_cloud, # T, 1024, 3, no rgb
+                # 'point_cloud': point_cloud, # T, 1024, 3, no rgb
                 'agent_pos': agent_pos, # T, D_pos
                 'action_pcd': action_pcd, # T, 580, 3
                 'anchor_pcd': anchor_pcd, # T, 580, 3
@@ -189,49 +194,84 @@ class DedoDataset(BaseDataset):
         if self.random_augment:
             # sample transform and compute mean across all timesteps
             T = random_so2()
+
+            # masking out padding for cloth point cloud
             cloth_size = torch_data['obs']['cloth'][0].item() # cloths across horizon should always be the same size
             action_pcd = torch_data['obs']['action_pcd'][:, :cloth_size, :]
             anchor_pcd = torch_data['obs']['anchor_pcd']
             ground_truth = torch_data['obs']['ground_truth'][:, :cloth_size, :]
 
-            if self.goal_conditioning == 'ground_truth':
-                point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=1) # includes action, achor, and ground truth
+            # downsampling point clouds; action and ground-truth maintain correspondences
+            _, action_indices = downsample_pcd(action_pcd[[0], ...], self.action_size, type='fps')
+            _, anchor_indices = downsample_pcd(anchor_pcd[[0], ...], self.anchor_size, type='fps')
+            action_indices = action_indices.squeeze()
+            anchor_indices = anchor_indices.squeeze()
 
-            elif self.goal_conditioning == 'none' or 'goal_flow':
-                point_cloud = torch.cat([action_pcd, anchor_pcd], dim=1)
+            action_pcd = action_pcd[:, action_indices, :]
+            anchor_pcd = anchor_pcd[:, anchor_indices, :]
+            ground_truth = ground_truth[:, action_indices, :]
 
-            # point_cloud = torch_data['obs']['point_cloud']
-            point_cloud_mean = point_cloud.mean(dim=[0, 1], keepdim=True)
+            # scene-centering
+            scene_center = torch.cat([action_pcd, anchor_pcd], dim=1).mean(dim=1, keepdim=True)
+            action_pcd = action_pcd - scene_center
+            anchor_pcd = anchor_pcd - scene_center
+            ground_truth = ground_truth - scene_center
 
             # transform point cloud
-            point_cloud = T.transform_points(point_cloud - point_cloud_mean) # + point_cloud_mean
-            if self.goal_conditioning == 'goal_flow':
-                goal_flow = T.transform_points(ground_truth - action_pcd)
-                point_cloud = torch.cat([point_cloud, goal_flow], dim=1)
+            action_pcd = T.transform_points(action_pcd)
+            anchor_pcd = T.transform_points(anchor_pcd)
+            ground_truth = T.transform_points(ground_truth)
+
+            # combining point clouds
+            if self.goal_conditioning == 'none':
+                point_cloud = torch.cat([action_pcd, anchor_pcd], dim=1)
+            elif self.goal_conditioning == 'ground_truth':
+                point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=1)
+            elif self.goal_conditioning == 'goal_flow':
+                goal_flow = ground_truth - action_pcd
+                point_cloud = torch.cat([action_pcd, anchor_pcd, goal_flow], dim=1)
+
+
+            # if self.goal_conditioning == 'ground_truth':
+            #     point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=1) # includes action, achor, and ground truth
+
+            # elif self.goal_conditioning == 'none' or 'goal_flow':
+            #     point_cloud = torch.cat([action_pcd, anchor_pcd], dim=1)
+
+            # # point_cloud = torch_data['obs']['point_cloud']
+            # scene_center = point_cloud.mean(dim=[0, 1], keepdim=True)
+
+            # # transform point cloud
+            # point_cloud = T.transform_points(point_cloud - scene_center) # + scene_center
+            # if self.goal_conditioning == 'goal_flow':
+            #     goal_flow = T.transform_points(ground_truth - action_pcd)
+            #     point_cloud = torch.cat([point_cloud, goal_flow], dim=1)
             
+
             agent_pos = torch_data['obs']['agent_pos']
             action = torch_data['action']
+            scene_center = scene_center.squeeze()
 
             # transform agent pos
-            agent_pos[:, 0:3] = T.transform_points(agent_pos[:, 0:3] - point_cloud_mean) # + point_cloud_mean
-            agent_pos[:, 6:9] = T.transform_points(agent_pos[:, 6:9] - point_cloud_mean) # + point_cloud_mean
+            agent_pos[:, 0:3] = T.transform_points(agent_pos[:, 0:3] - scene_center)
+            agent_pos[:, 6:9] = T.transform_points(agent_pos[:, 6:9] - scene_center)
             agent_pos[:, 3:6] = T.transform_points(agent_pos[:, 3:6])
             agent_pos[:, 9:12] = T.transform_points(agent_pos[:, 9:12])
 
             # transform action
-            action[:, 0:3] = T.transform_points(action[:, 0:3] - point_cloud_mean) # + point_cloud_mean
-            action[:, 3:6] = T.transform_points(action[:, 3:6] - point_cloud_mean) # + point_cloud_mean
+            action[:, 0:3] = T.transform_points(action[:, 0:3])
+            action[:, 3:6] = T.transform_points(action[:, 3:6])
 
-            # update torch data
-            if self.goal_conditioning == 'ground_truth' or self.goal_conditioning == 'goal_flow':
-                    torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
-                                                        np.zeros((point_cloud.shape[0], 1875 - point_cloud.shape[1], point_cloud.shape[2]))), 
-                                                        axis=1)
-            if self.goal_conditioning == 'none':
-                torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
-                                                    np.zeros((point_cloud.shape[0], 1250 - point_cloud.shape[1], point_cloud.shape[2]))), 
-                                                    axis=1)
-            # torch_data['obs']['point_cloud'] = point_cloud
+            # # update torch data
+            # if self.goal_conditioning == 'ground_truth' or self.goal_conditioning == 'goal_flow':
+            #         torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
+            #                                             np.zeros((point_cloud.shape[0], 2274 - point_cloud.shape[1], point_cloud.shape[2]))), 
+            #                                             axis=1)
+            # if self.goal_conditioning == 'none':
+            #     torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
+            #                                         np.zeros((point_cloud.shape[0], 1250 - point_cloud.shape[1], point_cloud.shape[2]))), 
+            #                                         axis=1)
+            torch_data['obs']['point_cloud'] = point_cloud
             torch_data['obs']['agent_pos'] = agent_pos
             torch_data['action'] = action
         return torch_data

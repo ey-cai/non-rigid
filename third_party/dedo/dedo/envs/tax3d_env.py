@@ -36,7 +36,7 @@ class Tax3dEnv(gym.Env):
     """
     MAX_OBS_VEL = 20.0  # max vel (in m/s) for the anchor observations
     MAX_ACT_VEL = 10.0  # max vel (in m/s) for the anchor actions
-    WORKSPACE_BOX_SIZE = 20.0  # workspace box limits (needs to be >=1)
+    WORKSPACE_BOX_SIZE = 30.0  # workspace box limits (needs to be >=1)
     STEPS_AFTER_DONE = 500     # steps after releasing anchors at the end
     FORCE_REWARD_MULT = 1e-4   # scaling for the force penalties
     FINAL_REWARD_MULT = 400    # multiply the final reward (for sparse rewards)

@@ -87,7 +87,7 @@ class TrainDP3Workspace:
             RUN_CKPT = False
             verbose = True
         else:
-            RUN_ROLLOUT = True
+            RUN_ROLLOUT = False
             RUN_CKPT = True
             verbose = False
         

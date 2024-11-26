@@ -42,12 +42,15 @@ dataset:
   # root_dir: ~/Documents/data/tax3d
 
   cloth_geometry: multi
-  cloth_pose: fixed
+  cloth_pose: random
   anchor_geometry: single
   anchor_pose: random
   hole: single
   robot: True
   goal_conditioning: ground_truth
+
+  action_size: 512
+  anchor_size: 512
 
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}

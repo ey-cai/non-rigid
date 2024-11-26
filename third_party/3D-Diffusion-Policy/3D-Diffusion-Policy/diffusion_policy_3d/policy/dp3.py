@@ -185,42 +185,42 @@ class DP3(BasePolicy):
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
 
         nobs = obs_dict
-        if not evaluation:
-            cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size            
-            if self.goal_conditioning == 'goal_flow':
-                # Centralize scene and ground truth
-                nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
-                point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size + 625, :].mean(dim=[-2, -3], keepdim=True)
-                nobs['point_cloud'][:,:,:cloth_size + 625] = nobs['point_cloud'][:,:,:cloth_size + 625] - point_cloud_mean
+        # if not evaluation:
+        #     cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size            
+        #     if self.goal_conditioning == 'goal_flow':
+        #         # Centralize scene and ground truth
+        #         nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
+        #         point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size + 625, :].mean(dim=[-2, -3], keepdim=True)
+        #         nobs['point_cloud'][:,:,:cloth_size + 625] = nobs['point_cloud'][:,:,:cloth_size + 625] - point_cloud_mean
             
-            elif self.goal_conditioning == 'ground_truth':
-                nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
-                point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size*2 +625, :].mean(dim=[-2, -3], keepdim=True)
-                nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        #     elif self.goal_conditioning == 'ground_truth':
+        #         nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
+        #         point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size*2 +625, :].mean(dim=[-2, -3], keepdim=True)
+        #         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
             
-            elif self.goal_conditioning == 'none':
-                nobs['point_cloud'] = nobs['point_cloud'][:, :, :cloth_size + 625, :]
-                point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size +625, :].mean(dim=[-2, -3], keepdim=True)
-                nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        #     elif self.goal_conditioning == 'none':
+        #         nobs['point_cloud'] = nobs['point_cloud'][:, :, :cloth_size + 625, :]
+        #         point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size +625, :].mean(dim=[-2, -3], keepdim=True)
+        #         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
 
-        if evaluation:
-            if self.goal_conditioning == 'goal_flow':
-                point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
-                nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
-                nobs['point_cloud']= torch.cat([nobs['point_cloud'], nobs['goal_flow']], dim=-2)
+        # if evaluation:
+        #     if self.goal_conditioning == 'goal_flow':
+        #         point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
+        #         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        #         nobs['point_cloud']= torch.cat([nobs['point_cloud'], nobs['goal_flow']], dim=-2)
 
-            elif self.goal_conditioning == 'ground_truth':
-                nobs['point_cloud']= torch.cat([nobs['point_cloud'], nobs['ground_truth']], dim=-2)
-                point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
-                nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        #     elif self.goal_conditioning == 'ground_truth':
+        #         nobs['point_cloud']= torch.cat([nobs['point_cloud'], nobs['ground_truth']], dim=-2)
+        #         point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
+        #         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
 
-            elif self.goal_conditioning == 'none':
-                point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
-                nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        #     elif self.goal_conditioning == 'none':
+        #         point_cloud_mean = nobs['point_cloud'].mean(dim=[-2, -3], keepdim=True) # Centroid of scene
+        #         nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
         
-        point_cloud_mean = point_cloud_mean.squeeze(2)
-        nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
-        nobs['agent_pos'][..., 6:9] = nobs['agent_pos'][..., 6:9] - point_cloud_mean
+        # point_cloud_mean = point_cloud_mean.squeeze(2)
+        # nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
+        # nobs['agent_pos'][..., 6:9] = nobs['agent_pos'][..., 6:9] - point_cloud_mean
         
         nobs = {key: tensor.float() for key, tensor in nobs.items()}
 
@@ -302,27 +302,27 @@ class DP3(BasePolicy):
         # nobs = self.normalizer.normalize(batch['obs'])
         nobs = batch['obs']
 
-        cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size            
-        if self.goal_conditioning == 'goal_flow':
-            # Centralize scene and ground truth
-            nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
-            point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size + 625, :].mean(dim=[-2, -3], keepdim=True)
-            nobs['point_cloud'][:,:,:cloth_size + 625] = nobs['point_cloud'][:,:,:cloth_size + 625] - point_cloud_mean
+        # cloth_size = nobs['cloth'][0][0].item() # cloths across horizon should always be the same size            
+        # if self.goal_conditioning == 'goal_flow':
+        #     # Centralize scene and ground truth
+        #     nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
+        #     point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size + 625, :].mean(dim=[-2, -3], keepdim=True)
+        #     nobs['point_cloud'][:,:,:cloth_size + 625] = nobs['point_cloud'][:,:,:cloth_size + 625] - point_cloud_mean
         
-        elif self.goal_conditioning == 'ground_truth':
-            nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
-            point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size*2 +625, :].mean(dim=[-2, -3], keepdim=True)
-            nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        # elif self.goal_conditioning == 'ground_truth':
+        #     nobs['point_cloud'] = nobs['point_cloud'][:,:, :cloth_size*2 + 625, :]
+        #     point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size*2 +625, :].mean(dim=[-2, -3], keepdim=True)
+        #     nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
         
-        elif self.goal_conditioning == 'none':
-            nobs['point_cloud'] = nobs['point_cloud'][:, :, :cloth_size + 625, :]
-            point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size +625, :].mean(dim=[-2, -3], keepdim=True)
-            nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
+        # elif self.goal_conditioning == 'none':
+        #     nobs['point_cloud'] = nobs['point_cloud'][:, :, :cloth_size + 625, :]
+        #     point_cloud_mean = nobs['point_cloud'][:,:, :cloth_size +625, :].mean(dim=[-2, -3], keepdim=True)
+        #     nobs['point_cloud'] = nobs['point_cloud'] - point_cloud_mean
 
         nobs = {key: tensor.float() for key, tensor in nobs.items()}
-        point_cloud_mean = point_cloud_mean.squeeze(2)
-        nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
-        nobs['agent_pos'][..., 6:9] = nobs['agent_pos'][..., 6:9] - point_cloud_mean
+        #point_cloud_mean = point_cloud_mean.squeeze(2)
+        #nobs['agent_pos'][..., 0:3] = nobs['agent_pos'][..., 0:3] - point_cloud_mean
+        #nobs['agent_pos'][..., 6:9] = nobs['agent_pos'][..., 6:9] - point_cloud_mean
         nactions = self.normalizer['action'].normalize(batch['action'])
 
         if not self.use_pc_color:
