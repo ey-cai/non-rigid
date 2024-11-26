@@ -56,7 +56,7 @@ policy:
 
   use_pc_color: false
   pointnet_type: "pointnet"
-
+  goal_conditioning: "ground_truth"
 
   pointcloud_encoder_cfg:
     in_channels: 3

@@ -17,8 +17,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', type=str, default='~/data', help='directory to save data')
     parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run')
-    parser.add_argument('--action_num_points', type=int, default=512, help='number of points in action point cloud')
-    parser.add_argument('--anchor_num_points', type=int, default=512, help='number of points in anchor point cloud')
+    parser.add_argument('--action_num_points', type=int, default=625, help='number of points in action point cloud')
+    parser.add_argument('--anchor_num_points', type=int, default=625, help='number of points in anchor point cloud')
     parser.add_argument('--split', type=str, default='train', help='train/val/val_ood split')
     # Args for experiment settings.
     parser.add_argument('--random_cloth_geometry', action='store_true', help='randomize cloth geometry')
@@ -141,9 +141,11 @@ if __name__ == '__main__':
 
     action_pcd_arrays = []
     anchor_pcd_arrays = []
+    ground_truth_arrays = []
     state_arrays = []
     action_arrays = []
     episode_ends_arrays = []
+    cloth_size_arrays = []
     total_count = 0
 
     with tqdm(total=num_episodes) as pbar:
@@ -175,7 +177,11 @@ if __name__ == '__main__':
 
             # randomizing cloth pose
             if random_cloth_pose:
-                raise NotImplementedError("Need to implement random cloth pose")
+                deform_rotation = env.random_cloth_transform()
+
+                deform_transform = {
+                    'rotation': deform_rotation
+                }
             else:
                 deform_transform = {}
             
@@ -206,6 +212,7 @@ if __name__ == '__main__':
             anchor_pcd_arrays_sub_list = []
             state_arrays_sub_list = []
             action_arrays_sub_list = []
+            cloth_size_arrays_sub_list = []
 
             total_count_sub_list = []
             success_sub_list = []
@@ -241,6 +248,7 @@ if __name__ == '__main__':
                 anchor_pcd_arrays_sub = []
                 state_arrays_sub = []
                 action_arrays_sub = []
+                cloth_size_arrays_sub = []
 
                 success = False
                 total_count_sub = 0
@@ -257,16 +265,21 @@ if __name__ == '__main__':
                     obs_anchor_pcd = obs['anchor_pcd']
                     gripper_state = obs['gripper_state']
 
-                    if obs_action_pcd.shape[0] > 512:
-                        obs_action_pcd = downsample_with_fps(obs_action_pcd, action_num_points)
-                    if obs_anchor_pcd.shape[0] > 512:
-                        obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
+                    cloth_size = obs_action_pcd.shape[0]
+                    if action_num_points == 625 and random_cloth_geometry:
+                        # print('Padding action point cloud with zeroes')
+                        pad = np.zeros((action_num_points - obs_action_pcd.shape[0], 3))
+                        pad[:, :3] = obs_action_pcd[0]
+                        obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
+
+                    obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
 
                     # update episode data
                     action_pcd_arrays_sub.append(obs_action_pcd)
                     anchor_pcd_arrays_sub.append(obs_anchor_pcd)
                     state_arrays_sub.append(gripper_state)
                     action_arrays_sub.append(action)
+                    cloth_size_arrays_sub.append([cloth_size])
 
                     # step environment
                     obs, reward, done, info = env.step(action, action_type=action_type)
@@ -284,6 +297,7 @@ if __name__ == '__main__':
                     state_arrays_sub_list.extend(state_arrays_sub)
                     action_arrays_sub_list.extend(action_arrays_sub)
                     total_count_sub_list.append(total_count_sub)
+                    cloth_size_arrays_sub_list.extend(cloth_size_arrays_sub)
                     reward_sum_list.append(reward_sum)
 
                     # updating successful tax3d demo
@@ -313,6 +327,17 @@ if __name__ == '__main__':
                 anchor_pcd_arrays.extend(anchor_pcd_arrays_sub_list)
                 state_arrays.extend(state_arrays_sub_list)
                 action_arrays.extend(action_arrays_sub_list)
+                cloth_size_arrays.extend(cloth_size_arrays_sub_list)
+
+                len_episode = len(action_pcd_arrays_sub)
+                ground_truth_subarray = np.tile(np.expand_dims(obs["action_pcd"], axis=0), (len_episode, 1, 1))
+
+                if obs_action_pcd.shape[0] == 625 and random_cloth_geometry:
+                    # print('Padding ground truth with zeroes')
+                    pad_gt = np.tile(ground_truth_subarray[:, 0].reshape(-1, 1, 3), (1, action_num_points - ground_truth_subarray.shape[1], 1))
+                    ground_truth_subarray = np.concatenate([ground_truth_subarray, pad_gt], axis=1)
+
+                ground_truth_arrays.extend(ground_truth_subarray)
 
                 # save tax3d demos and rollout vids
                 for i in range(len(tax3d_demo_list)):
@@ -348,7 +373,15 @@ if __name__ == '__main__':
     anchor_pcd_arrays = np.stack(anchor_pcd_arrays, axis=0)
     state_arrays = np.stack(state_arrays, axis=0)
     action_arrays = np.stack(action_arrays, axis=0)
+    action_arrays = action_arrays.reshape(action_arrays.shape[0], -1) # Flatten
     episode_ends_arrays = np.array(episode_ends_arrays)
+    ground_truth_arrays = np.stack(ground_truth_arrays, axis=0)
+    cloth_size_arrays = np.stack(cloth_size_arrays, axis=0)
+
+    episode_length = 301
+    velocity_arrays = np.zeros((len(state_arrays), 6))    
+    velocity_arrays[:, 0:3] = state_arrays[:, 3:6]
+    velocity_arrays[:, 3:6] = state_arrays[:, 9:12]
 
     # as an additional step, create point clouds that combine action and anchor
     point_cloud_arrays = np.concatenate([action_pcd_arrays, anchor_pcd_arrays], axis=1)
@@ -360,21 +393,30 @@ if __name__ == '__main__':
     anchor_pcd_chunk_size = (100, anchor_pcd_arrays.shape[1], anchor_pcd_arrays.shape[2])
     state_chunk_size = (100, state_arrays.shape[1])
     action_chunk_size = (100, action_arrays.shape[1])
+    cloth_chunk_size = (100, action_arrays.shape[1])
+    ground_truth_chunk_size = (100, ground_truth_arrays.shape[1], ground_truth_arrays.shape[2])
+    velocity_chunk_size = (100, velocity_arrays.shape[1])
 
     zarr_data.create_dataset('action_pcd', data=action_pcd_arrays, chunks=action_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('anchor_pcd', data=anchor_pcd_arrays, chunks=anchor_pcd_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('state', data=state_arrays, chunks=state_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('action', data=action_arrays, chunks=action_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+    zarr_data.create_dataset('cloth', data=cloth_size_arrays, chunks=cloth_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_data.create_dataset('point_cloud', data=point_cloud_arrays, dtype='float32', overwrite=True, compressor=compressor)
+    zarr_data.create_dataset('ground_truth', data=ground_truth_arrays, chunks=ground_truth_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
+    zarr_data.create_dataset('velocity', data=velocity_arrays, chunks=velocity_chunk_size, dtype='float32', overwrite=True, compressor=compressor)
     zarr_meta.create_dataset('episode_ends', data=episode_ends_arrays, dtype='int64', overwrite=True, compressor=compressor)
     
     cprint(f'action point cloud shape: {action_pcd_arrays.shape}, range: [{np.min(action_pcd_arrays)}, {np.max(action_pcd_arrays)}]', 'green')
     cprint(f'anchor point cloud shape: {anchor_pcd_arrays.shape}, range: [{np.min(anchor_pcd_arrays)}, {np.max(anchor_pcd_arrays)}]', 'green')
     cprint(f'point cloud shape: {point_cloud_arrays.shape}, range: [{np.min(point_cloud_arrays)}, {np.max(point_cloud_arrays)}]', 'green')
     cprint(f'action shape: {action_arrays.shape}, range: [{np.min(action_arrays)}, {np.max(action_arrays)}]', 'green')
+    cprint(f'ground truth shape: {ground_truth_arrays.shape}, range: [{np.min(ground_truth_arrays)}, {np.max(ground_truth_arrays)}]', 'green')
+    cprint(f'cloth shape: {cloth_size_arrays.shape}, size: [{np.min(cloth_size_arrays)}, {np.max(cloth_size_arrays)}]', 'green')
+    cprint(f'velocity shape: {velocity_arrays.shape}, range: [{np.min(velocity_arrays)}, {np.max(velocity_arrays)}]', 'green')
     cprint(f'Saved zarr file to {save_dir}', 'green')
 
     # clean up
-    del action_pcd_arrays, anchor_pcd_arrays, action_arrays, episode_ends_arrays
+    del action_pcd_arrays, anchor_pcd_arrays, action_arrays, episode_ends_arrays, ground_truth_arrays, velocity_arrays, cloth_size_arrays
     del zarr_root, zarr_data, zarr_meta
     del env

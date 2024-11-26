@@ -181,6 +181,8 @@ class DedoRunner(BaseRunner):
                 'rotation': demo['rot'],
                 'translation': demo['trans'],
             }
+            goal_pc = demo['action_pc'] + demo['flow']
+            goal_pc = torch.from_numpy(goal_pc).to(device=device)
 
             obs = env.reset(
                 deform_params=deform_params,
@@ -198,8 +200,7 @@ class DedoRunner(BaseRunner):
                 obs_dict = dict_apply(np_obs_dict,
                                       lambda x: torch.from_numpy(x).to(
                                           device=device))
-                
-                
+        
                 # run policy
                 with torch.no_grad():
                     obs_dict_input = {}  # flush unused keys
@@ -212,7 +213,14 @@ class DedoRunner(BaseRunner):
                     else:
                         obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
                         obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
-                        action_dict = policy.predict_action(obs_dict_input)
+                        bsz = obs_dict_input['point_cloud'].shape[0]
+                        hor = obs_dict_input['point_cloud'].shape[1]
+                        cloth_size = goal_pc.shape[0]
+                        goal_pointcloud = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)
+                        obs_dict_input['ground_truth'] = goal_pointcloud
+                        obs_dict_input['goal_flow'] = goal_pointcloud - obs_dict_input['point_cloud'][:,:,:cloth_size]
+                        action_dict = policy.predict_action(obs_dict_input, evaluation = True)
+
                 # device transfer
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())

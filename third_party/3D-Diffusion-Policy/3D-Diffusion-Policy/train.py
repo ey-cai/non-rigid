@@ -258,11 +258,11 @@ class TrainDP3Workspace:
             if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
                 t3 = time.time()
                 # runner_log = env_runner.run(policy, dataset=dataset)
-                runner_log = env_runner.run(policy)
+                # runner_log = env_runner.run(policy)
                 t4 = time.time()
                 # print(f"rollout time: {t4-t3:.3f}")
                 # log all
-                step_log.update(runner_log)
+                # step_log.update(runner_log)
 
                 
             # run validation
@@ -302,7 +302,7 @@ class TrainDP3Workspace:
                     del pred_action
                     del mse
 
-            if env_runner is None:
+            if env_runner is None or 'test_mean_score' not in step_log:
                 step_log['test_mean_score'] = - train_loss
 
             # checkpoint
@@ -373,10 +373,12 @@ class TrainDP3Workspace:
         anchor_geometry = dataset_cfg.anchor_geometry
         anchor_pose = dataset_cfg.anchor_pose
         hole = dataset_cfg.hole
+        robot = dataset_cfg.robot
         dataset_name = (
             f'cloth={cloth_geometry}-{cloth_pose} ' + \
             f'anchor={anchor_geometry}-{anchor_pose} ' + \
-            f'hole={hole}'
+            f'hole={hole} ' + \
+            f'robot={robot}'
         )
         dataset_dir = os.path.join(
             os.path.expanduser(dataset_cfg.root_dir),
@@ -403,7 +405,7 @@ class TrainDP3Workspace:
 
         train_dataset = DedoDataset(dataset_dir + "/train_tax3d")
         val_dataset = DedoDataset(dataset_dir + "/val_tax3d")
-        val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
+        # val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
 
         # load the latest checkpoint
 
@@ -447,12 +449,12 @@ class TrainDP3Workspace:
             if isinstance(value, float):
                 cprint(f"{key}: {value:.4f}", 'magenta')
             
-        runner_log = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
+        # runner_log = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
 
-        cprint(f"---------------- Eval Results for Val. OOD --------------", 'magenta')
-        for key, value in runner_log.items():
-            if isinstance(value, float):
-                cprint(f"{key}: {value:.4f}", 'magenta')
+        # cprint(f"---------------- Eval Results for Val. OOD --------------", 'magenta')
+        # for key, value in runner_log.items():
+        #     if isinstance(value, float):
+        #         cprint(f"{key}: {value:.4f}", 'magenta')
 
 
     @property
