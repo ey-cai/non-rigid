@@ -29,7 +29,13 @@ from .tax3d_proccloth_env import Tax3dProcClothEnv
 
 
 def clip_vec_mag(vec, mag):
-    return vec / np.linalg.norm(vec) * min(np.linalg.norm(vec), mag)
+    #print(vec)
+    vec_norm = np.linalg.norm(vec)
+    if vec_norm == 0:
+        return vec
+    else:
+        return vec / vec_norm * min(vec_norm, mag)
+    #return vec / np.linalg.norm(vec) * min(np.linalg.norm(vec), mag)
 
 class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
     """
@@ -66,11 +72,6 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
             left_fing_link_prefix='panda_hand_l_', left_joint_suffix='_l',
             left_rest_arm_qpos=robot_info.get('left_rest_arm_qpos', None),
             debug=args.debug)
-        
-        # initializing previous actions
-        self.prev_ee_action = None
-        self.prev_ee_left_action = None
-
         return res
     
     
@@ -139,6 +140,23 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
         info = super().make_final_steps()
         return info
     
+    def get_pcd_obs(self, width=500, height=500):
+        obs = super().get_pcd_obs(width, height)
+
+        # filter out robot link ids from object ids
+        obj_ids = []
+        for oid in self.object_ids:
+            oid_joints = self.sim.getNumJoints(oid)
+            for i in range(-1, oid_joints):
+                obj_ids.append(oid + ((i + 1) << 24))
+        
+        obj_filter = np.isin(obs['ids'], obj_ids)
+        obs = {
+            'pcd': obs['pcd'][obj_filter],
+            'ids': obs['ids'][obj_filter],
+        }
+        return obs
+    
     def do_action_ee_position(self, action):
         """
         Action is delta pose.
@@ -167,19 +185,15 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
         # for now, don't worry about n_slack
         self.robot.move_to_qpos(tgt_qpos, mode=pybullet.POSITION_CONTROL, kp=0.1, kd=1.2)
 
-    def pseudo_expert_action(self, hole_id):
-        """
-        Potential TODOs: maybe a velocity regularization term if the robot suddenly stops at the end
-        """
-       
+    def pseudo_expert_action(self, hole_id):       
         goals = self.goal_anchor_positions[hole_id]
         
         # get current loop centroid position
-        loop_vertices = self.args.deform_true_loop_vertices[hole_id]
+        # loop_vertices = self.args.deform_true_loop_vertices[hole_id]
         _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
-        centroid_points = np.array(vertex_positions)[loop_vertices]
-        centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
-        centroid = np.mean(centroid_points, axis=0)
+        # centroid_points = np.array(vertex_positions)[loop_vertices]
+        # centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
+        # centroid = np.mean(centroid_points, axis=0)
 
         # get positions of anchors
         anchor_positions = []
@@ -236,10 +250,10 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
         left_ee_z_offset = clip_vec_mag(np.array([0, 0, left_ee_z_offset]), 0.1)
 
         # TODO: compensation for perpendicular standoff?
+
         ee_action = ee_action + ee_ori_offset + ee_z_offset + ee_xy_offset
         left_ee_action = left_ee_action + left_ee_ori_offset + left_ee_z_offset + left_ee_xy_offset
         ee_action = clip_vec_mag(ee_action, 0.1)
         left_ee_action = clip_vec_mag(left_ee_action, 0.1)
-
-        return np.concatenate([ee_action, left_ee_action])
+        return np.concatenate([ee_action, left_ee_action], axis=-1).squeeze()
     

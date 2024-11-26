@@ -133,9 +133,9 @@ class BulletManipulator:
             # solver=pybullet.IK_SDLS,
         }
         ee_pos, ee_ori, *_ = self.get_ee_pos_ori_vel()
-        print('Initialized robot ee at pos', ee_pos,
-              'euler ori', sin_cos_to_theta(ee_ori),
-              'sin/cos ori', ee_ori)
+        # print('Initialized robot ee at pos', ee_pos,
+        #       'euler ori', sin_cos_to_theta(ee_ori),
+        #       'sin/cos ori', ee_ori)
 
     def load_robot(self, robot_path, ee_joint_name, ee_link_name,
                    left_ee_joint_name, left_ee_link_name,
