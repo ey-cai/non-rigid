@@ -36,7 +36,7 @@ class DedoEnv:
         # TODO: can move some of this stuff to task config
 
         if task_name == "proccloth":
-            args.env = 'HangProcCloth-v0'
+            args.env = 'HangProcClothRobot-v0'
             args.max_episode_len = 300
         elif task_name == "hangbag":
             args.env = 'HangBag-v0'
@@ -136,10 +136,12 @@ class DedoEnv:
                 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
+            anchor_pcd = downsample_with_fps(anchor_pcd, 625)
             point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
+            # point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
 
-            if point_cloud.shape[0] > self.num_points:
-                point_cloud = downsample_with_fps(point_cloud, self.num_points)
+            # if point_cloud.shape[0] > self.num_points:
+            #     point_cloud = downsample_with_fps(point_cloud, self.num_points)
             obs_dict = {
                 'point_cloud': point_cloud,
                 'agent_pos': obs['gripper_state'],

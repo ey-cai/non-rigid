@@ -22,7 +22,7 @@ env_runner:
   fps: 10
   task_name: proccloth
   viz: False
-  control_type: position
+  control_type: ee_position
 
 inference:
   seed: 1
@@ -41,11 +41,13 @@ dataset:
   # root_dir: ~/Documents/data
   # root_dir: ~/Documents/data/tax3d
 
-  cloth_geometry: single
+  cloth_geometry: multi
   cloth_pose: fixed
   anchor_geometry: single
   anchor_pose: random
   hole: single
+  robot: True
+  goal_conditioning: ground_truth
 
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}
