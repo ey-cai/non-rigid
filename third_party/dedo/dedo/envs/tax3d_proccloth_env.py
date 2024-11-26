@@ -66,7 +66,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
         # Setting default task-specific parameters.
         self.scene_name = 'hangcloth'
         self.args.node_density = 25
-        # self.args.num_holes = 1
+        self.args.num_holes = 1
 
     def load_objects(self, args):
         # ----------------- LOADING DEFORMABLE OBJECT -----------------
@@ -282,6 +282,9 @@ class Tax3dProcClothEnv(Tax3dEnv):
             np.random.uniform(-1, 1),
         ])
         return rotation, translation
+
+    def random_cloth_transform(self):
+        raise NotImplementedError("Need to implement this")
 
     def random_anchor_transform(self):
         z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
