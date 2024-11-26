@@ -99,9 +99,6 @@ class Tax3dProcClothEnv(Tax3dEnv):
         scene_info_copy = apply_rigid_params(self.scene_name, scene_info_copy, self.rigid_params)
         # TODO: apply_rigid_params is obsolete now that there are task-specific classes
         # should replace later, and move code into here
-
-        # TODO: the workflow renders pcd first, then transforms for the old experiments
-        # this should be updated to load rigid to the correct position first
         rigid_ids = []
         for name, kwargs in scene_info_copy['entities'].items():
             # Load rigid texture.
@@ -112,17 +109,9 @@ class Tax3dProcClothEnv(Tax3dEnv):
                     args.data_path, self.get_texture_path(args.rigid_texture_file)
                 )
 
-            # Transform the rigid object, if necessary.
+            # Load the rigid object.
             rigid_position = kwargs['basePosition']
             rigid_orientation = kwargs['baseOrientation']
-            # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
-            #     rigid_rotation = R.from_euler('xyz', self.rigid_transform['rotation'])
-            #     rigid_translation = self.rigid_transform['translation']
-            #     # Apply the transformation.
-            #     rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
-            #     rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
-            
-            # Load the rigid object.
             id = load_rigid_object(
                 self.sim, os.path.join(args.data_path, name), kwargs['globalScaling'],
                 # kwargs['basePosition'], kwargs['baseOrientation'],
@@ -286,9 +275,14 @@ class Tax3dProcClothEnv(Tax3dEnv):
     def random_anchor_transform(self):
         z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
         rotation = R.from_euler('z', z_rot)
+        # translation = np.array([
+        #     np.random.uniform() * 5 * np.power(-1, z_rot < 0),
+        #     np.random.uniform() * -10,
+        #     0.0
+        # ])
         translation = np.array([
-            np.random.uniform() * 5 * np.power(-1, z_rot < 0),
-            np.random.uniform() * -5 - 5,
+            np.random.uniform() * 3.5 * np.power(-1, z_rot < 0),
+            np.random.uniform() * -7.5,
             0.0
         ])
         return rotation, translation
@@ -296,11 +290,21 @@ class Tax3dProcClothEnv(Tax3dEnv):
     def random_anchor_transform_ood(self):
         z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
         rotation = R.from_euler('z', z_rot)
-        translation = np.array([
-            np.random.uniform(5, 10) * np.power(-1, z_rot < 0),
-            np.random.uniform() * -10,
-            np.random.uniform(1, 5)
-        ])
+        # translation = np.array([
+        #     np.random.uniform(5, 10) * np.power(-1, z_rot < 0),
+        #     np.random.uniform() * -10,
+        #     np.random.uniform(1, 5)
+        # ])
+        # TODO: very hacky for now; just randomly sample until we get a valid position
+        while True:
+            translation = np.array([
+                np.random.uniform() * 7 * np.power(-1, z_rot < 0),
+                np.random.uniform() * -12,
+                0.0
+            ])
+            translation_abs = np.abs(translation)
+            if translation_abs[0] >= 3.5 or translation_abs[1] >= 7.5:
+                break
         return rotation, translation
 
     def check_pre_release(self):
@@ -319,7 +323,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
             cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]
             cent_pos = cent_pts.mean(axis=0)
             dist = np.linalg.norm(cent_pos - goal_pos)
-            centroid_checks.append(dist < 2.0)
+            centroid_checks.append(dist < 1.5)
             centroid_dists.append(dist)
         return np.array(centroid_checks), np.array(centroid_dists)
 
