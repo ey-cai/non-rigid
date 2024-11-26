@@ -1,9 +1,6 @@
 {
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": false,
     "python.formatting.provider": "none",
-    "editor.codeActionsOnSave": {
-        "source.organizeImports": "explicit"
-    },
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter"
     }
