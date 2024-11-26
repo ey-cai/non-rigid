@@ -145,6 +145,9 @@ if __name__ == '__main__':
     action_arrays = []
     episode_ends_arrays = []
     total_count = 0
+    total_successes = 0
+    total_failures = 0
+    counter = 0
 
     with tqdm(total=num_episodes) as pbar:
         num_success = 0
@@ -175,7 +178,12 @@ if __name__ == '__main__':
 
             # randomizing cloth pose
             if random_cloth_pose:
-                raise NotImplementedError("Need to implement random cloth pose")
+                deform_rotation, deform_translation = env.random_deform_transform()
+                deform_rotation = deform_rotation.as_euler('xyz')
+                deform_transform = {
+                    'rotation': deform_rotation,
+                    'translation': deform_translation,
+                }
             else:
                 deform_transform = {}
             
@@ -184,8 +192,8 @@ if __name__ == '__main__':
                 raise NotImplementedError("Need to implement random anchor geometry")
             else:
                 rigid_params = {
-                    'hanger_scale': 1.0,
-                    'tallrod_scale': 1.0,
+                    'hanger_scale': 1.5,
+                    'tallrod_scale': 1.5,
                 }
             
             # randomizing anchor pose
@@ -222,6 +230,10 @@ if __name__ == '__main__':
                     deform_params=deform_params,
                     rigid_params=rigid_params,
                 )
+
+                #breakpoint()
+                #counter += 1
+                #continue
 
                 # initializing tax3d demo
                 tax3d_demo = {
@@ -295,8 +307,10 @@ if __name__ == '__main__':
                         Image.fromarray(frame) for frame in info["vid_frames"]
                     ]
                     rollout_vid_list.append(vid_frames)
+                    total_successes += 1
                 else:
                     print("Failed.")
+                    total_failures += 1
                     break
 
             # in order to save data, policy must be successful on all holes
@@ -373,6 +387,7 @@ if __name__ == '__main__':
     cprint(f'point cloud shape: {point_cloud_arrays.shape}, range: [{np.min(point_cloud_arrays)}, {np.max(point_cloud_arrays)}]', 'green')
     cprint(f'action shape: {action_arrays.shape}, range: [{np.min(action_arrays)}, {np.max(action_arrays)}]', 'green')
     cprint(f'Saved zarr file to {save_dir}', 'green')
+    cprint(f'Successes: {total_successes}, Failures: {total_failures}', 'green')
 
     # clean up
     del action_pcd_arrays, anchor_pcd_arrays, action_arrays, episode_ends_arrays

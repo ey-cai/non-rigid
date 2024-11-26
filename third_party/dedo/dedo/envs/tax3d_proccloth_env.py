@@ -161,7 +161,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
             for anchor in range(self.num_anchors):
                 anchor_pos = vertex_positions[anchor_vertices[anchor]]
                 # small offset to make sure the gripper goes past the hanger
-                goal_anchor_pos = anchor_pos + flow + np.array([0, -1.0, 0])
+                goal_anchor_pos = anchor_pos + flow + np.array([0, -1.5, 0.5])
                 hole_goal_anchor_positions.append(goal_anchor_pos)
             goal_anchor_positions.append(hole_goal_anchor_positions)
 
@@ -169,8 +169,13 @@ class Tax3dProcClothEnv(Tax3dEnv):
         # ----------------- TRANSFORMING ALL OBJECTS AND GOALS -----------------
         # Transform the deformable object, if necessary.
         if 'rotation' in self.deform_transform and 'translation' in self.deform_transform:
-            # TODO: implement this
-            raise NotImplementedError('Rotation and translation not yet supported.')
+            # Apply the transformation to the deformable object.
+            deform_rotation = R.from_euler('xyz', self.deform_transform['rotation'])
+            deform_translation = self.deform_transform['translation']
+            # deform_position = deform_rotation.apply(deform_position) + deform_translation
+            deform_position = deform_position + deform_translation
+            deform_orientation = (deform_rotation * R.from_euler('xyz', deform_orientation)).as_euler('xyz')
+            self.sim.resetBasePositionAndOrientation(deform_id, deform_position, pybullet.getQuaternionFromEuler(deform_orientation))
         elif self.deform_transform:
             raise ValueError('Deformable transformation must specify rotation and translation.')
         
@@ -182,7 +187,8 @@ class Tax3dProcClothEnv(Tax3dEnv):
             for i, (name, kwargs) in enumerate(scene_info_copy['entities'].items()):
                 rigid_position = kwargs['basePosition']
                 rigid_orientation = kwargs['baseOrientation']
-                rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
+                # rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
+                rigid_position = rigid_position + rigid_translation
                 rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
                 self.sim.resetBasePositionAndOrientation(rigid_ids[i], rigid_position, pybullet.getQuaternionFromEuler(rigid_orientation))
 
@@ -265,13 +271,24 @@ class Tax3dProcClothEnv(Tax3dEnv):
         action = action + np.concatenate([correction, correction], axis=0).astype(np.float32)
         return action
 
+    def random_deform_transform(self):
+        z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
+        rotation = R.from_euler('z', z_rot)
+        # translation = np.array([0, 0, 0])
+
+        translation = np.array([
+            np.random.uniform(-1, 1),
+            np.random.uniform(0, 2),
+            np.random.uniform(-1, 1),
+        ])
+        return rotation, translation
 
     def random_anchor_transform(self):
         z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
         rotation = R.from_euler('z', z_rot)
         translation = np.array([
             np.random.uniform() * 5 * np.power(-1, z_rot < 0),
-            np.random.uniform() * -10,
+            np.random.uniform() * -5 - 5,
             0.0
         ])
         return rotation, translation
@@ -302,7 +319,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
             cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]
             cent_pos = cent_pts.mean(axis=0)
             dist = np.linalg.norm(cent_pos - goal_pos)
-            centroid_checks.append(dist < 1.3)
+            centroid_checks.append(dist < 2.0)
             centroid_dists.append(dist)
         return np.array(centroid_checks), np.array(centroid_dists)
 
