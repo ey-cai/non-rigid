@@ -1,0 +1,62 @@
+name: ndf
+data_dir: /home/lyuxinghe/non-rigid/datasets/ndf/mugplace_one
+# data_dir: /home/odonca/workspace/rpad/data/rpdiff/data/overfit_1r_1m_1d
+type: point
+
+scene: False
+world_frame: True
+
+###################################################
+# General Dataset Parameters
+###################################################
+num_demos: 1 # Number of demonstrations to load
+train_dataset_size: 1024 # Length of the train dataset
+val_dataset_size: 128 # Length of the validation dataset
+val_use_defaults: True # Use default values for some parameters on the validation set
+
+###################################################
+# Point Cloud Transformation Parameters
+###################################################
+center_type: anchor_center # [action_center, anchor_center, anchor_random, none], centers the point clouds w.r.t. the action, anchor, or no centering
+action_context_center_type: center # [center, random, none], centers the action context point clouds
+sample_size_action: 512 # Number of points to downsample to
+sample_size_anchor: 512 # Number of points to downsample to for the anchor
+downsample_type: 2N_random_fps # [fps, random], downsampling method
+pcd_scale_factor: 15.0 # Scale factor for the point clouds
+
+action_transform_type: quat_uniform # Transformation type to apply to demonstrations
+action_translation_variance: 0.0 # Translation variance of the demo transformation
+action_rotation_variance: 180 # Rotation variance of the demo transformation
+
+anchor_transform_type: random_flat_upright # Transformation type to apply to demonstrations
+anchor_translation_variance: 0.5 # Translation variance of the demo transformation
+anchor_rotation_variance: 180 # Rotation variance of the demo transformation
+
+###################################################
+# Distractor parameters
+###################################################
+distractor_anchor_pcds: 0 # Number of distractor anchor pcds to generate
+distractor_transform_type: random_flat_upright # Transformation type to apply when generating distractor pcds
+distractor_translation_variance: 0.5 # Translation variance of the distractor transformation
+distractor_rotation_variance: 180 # Rotation variance of the distractor transformation
+
+###################################################
+# Data Augmentation Parameters
+###################################################
+random_pcd_scaling_probability: 0
+random_pcd_scaling_max: 1.2
+random_pcd_scaling_min: 0.8
+
+action_plane_occlusion: 0 # Probability of applying plane occlusion 
+action_plane_standoff: 0.04 # Standoff distance of the occluding plane from selected plane origin
+action_ball_occlusion: 0 # Probability of applying ball occlusion
+action_ball_radius: 0.1 # Radius of the occluding ball
+action_random_drop_probability: 0 # Probability of applying random drop
+action_random_drop_percent: 0.1 # Percentage of points being dropped
+
+anchor_plane_occlusion: 0 # Probability of applying plane occlusion
+anchor_plane_standoff: 0.04 # Standoff distance of the occluding plane from selected plane origin
+anchor_ball_occlusion: 0 # Probability of applying ball occlusion
+anchor_ball_radius: 0.1 # Radius of the occluding ball
+anchor_random_drop_probability: 0 # Probability of applying random drop
+anchor_random_drop_percent: 0.1 # Percentage of points being dropped

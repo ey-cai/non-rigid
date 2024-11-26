@@ -24,6 +24,7 @@ sample_size_anchor: 1024 # Number of points to downsample to for the anchor
 downsample_type: 2N_random_fps # [fps, random], downsampling method
 pcd_scale_factor: 15.0 # Scale factor for the point clouds
 
+action_context_center_type: center # [center, random, none], centers the action context point clouds
 action_transform_type: quat_uniform # Transformation type to apply to demonstrations
 action_translation_variance: 0.0 # Translation variance of the demo transformation
 action_rotation_variance: 180 # Rotation variance of the demo transformation

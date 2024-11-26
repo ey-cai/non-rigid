@@ -12,7 +12,9 @@
 
 GPU_INDEX=$1
 MODEL_TYPE=$2
-WANDB_MODE=$3
+DATASET_NAME=$3
+WANDB_MODE=$4
+shift
 shift
 shift
 shift
@@ -20,22 +22,22 @@ COMMAND=$@
 
 # relative frame cross point
 if [ $MODEL_TYPE == "cross_point_relative" ]; then
-  echo "Training relative point model with command: $COMMAND."
+  echo "Training relative point model on dataset $DATASET_NAME with command: $COMMAND."
 
   MODEL_PARAMS="model=df_cross model.type=point"
-  DATASET_PARAMS="dataset=ndf dataset.type=point dataset.scene=False dataset.world_frame=False"
+  DATASET_PARAMS="dataset=$DATASET_NAME dataset.type=point dataset.scene=False dataset.world_frame=False"
 # relative frame cross flow
 elif [ $MODEL_TYPE == "cross_flow_relative" ]; then
-  echo "Training relative flow model with command: $COMMAND."
+  echo "Training relative flow model on dataset $DATASET_NAME with command: $COMMAND."
 
   MODEL_PARAMS="model=df_cross model.type=flow"
-  DATASET_PARAMS="dataset=ndf dataset.type=flow dataset.scene=False dataset.world_frame=False"
+  DATASET_PARAMS="dataset=$DATASET_NAME dataset.type=flow dataset.scene=False dataset.world_frame=False"
 # relative frame cross flow cfg
 elif [ $MODEL_TYPE == "cross_flow_relative_cfg" ]; then
-  echo "Training relative flow model with classifier-free guidance with command: $COMMAND."
+  echo "Training relative flow model on dataset $DATASET_NAME with classifier-free guidance with command: $COMMAND."
 
   MODEL_PARAMS="model=df_cross_cfg model.type=flow"
-  DATASET_PARAMS="dataset=ndf dataset.type=flow dataset.scene=False dataset.world_frame=False"
+  DATASET_PARAMS="dataset=$DATASET_NAME dataset.type=flow dataset.scene=False dataset.world_frame=False"
 fi
 
 WANDB_MODE=$WANDB_MODE python scripts/train_diff.py \

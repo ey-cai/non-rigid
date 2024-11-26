@@ -42,7 +42,7 @@ python scripts/eval_rigid.py \
   $MODEL_PARAMS \
   $DATASET_PARAMS \
   resources.gpus=[${GPU_INDEX}] \
-  checkpoint.reference='/home/lyuxinghe/non-rigid/logs/train_ndf_df_cross/2024-11-15/15-27-36/checkpoints/epoch_17899.ckpt' \
+  checkpoint.reference=r-pad/non_rigid/model-${CHECKPOINT}:v0 \
   checkpoint.run_id=${CHECKPOINT} \
   $COMMAND
 
@@ -52,7 +52,7 @@ python scripts/eval_rigid.py \
   $MODEL_PARAMS \
   $DATASET_PARAMS \
   resources.gpus=[${GPU_INDEX}] \
-  checkpoint.reference=r-pad/non_rigid/model-${CHECKPOINT}:v0 \
+  checkpoint.reference='/home/lyuxinghe/non-rigid/logs/train_ndf_df_cross/2024-11-15/15-27-36/checkpoints/epoch_17899.ckpt' \
   checkpoint.run_id=${CHECKPOINT} \
   $COMMAND
 
