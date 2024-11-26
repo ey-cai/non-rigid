@@ -7,6 +7,53 @@ from typing import Tuple, List
 
 from non_rigid.utils.transform_utils import random_se3
 
+def masked_gather(points: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+    """
+    Helper function for torch.gather to collect the points at
+    the given indices in idx where some of the indices might be -1 to
+    indicate padding. These indices are first replaced with 0.
+    Then the points are gathered after which the padded values
+    are set to 0.0.
+
+    Args:
+        points: (N, P, D) float32 tensor of points
+        idx: (N, K) or (N, P, K) long tensor of indices into points, where
+            some indices are -1 to indicate padding
+
+    Returns:
+        selected_points: (N, K, D) float32 tensor of points
+            at the given indices
+    """
+
+    if len(idx) != len(points):
+        raise ValueError("points and idx must have the same batch dimension")
+
+    N, P, D = points.shape
+
+    if idx.ndim == 3:
+        # Case: KNN, Ball Query where idx is of shape (N, P', K)
+        # where P' is not necessarily the same as P as the
+        # points may be gathered from a different pointcloud.
+        K = idx.shape[2]
+        # Match dimensions for points and indices
+        idx_expanded = idx[..., None].expand(-1, -1, -1, D)
+        points = points[:, :, None, :].expand(-1, -1, K, -1)
+    elif idx.ndim == 2:
+        # Farthest point sampling where idx is of shape (N, K)
+        idx_expanded = idx[..., None].expand(-1, -1, D)
+    else:
+        raise ValueError("idx format is not supported %s" % repr(idx.shape))
+
+    idx_expanded_mask = idx_expanded.eq(-1)
+    idx_expanded = idx_expanded.clone()
+    # Replace -1 values with 0 for gather
+    idx_expanded[idx_expanded_mask] = 0
+    # Gather points
+    selected_points = points.gather(dim=1, index=idx_expanded)
+    # Replace padded values
+    selected_points[idx_expanded_mask] = 0.0
+    return selected_points
+
 
 def expand_pcd(
         points: torch.Tensor, num_samples: int
@@ -40,42 +87,77 @@ def expand_pcd(
 
 
 def downsample_pcd(
-    points: torch.Tensor, num_points: int = 1024, type: str = "fps"
+    init_points: torch.Tensor,
+    final_points: torch.Tensor, 
+    num_points: int = 1024, 
+    type: str = "fps"
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Downsamples a pointcloud using a specified method.
 
     Args:
-        points (torch.Tensor): [B, N, 3] Pointcloud to downsample.
+        init_points (torch.Tensor): [B, N, 3] Pointcloud in the initial frame to downsample.
+        final_points (torch.Tensor): [B, N, 3] Pointcloud in the final frame to downsample.
         num_points (int): Number of points to downsample to.
         type (str): Method of downsampling the point cloud.
 
     Returns:
-        (torch.Tensor): Downsampled pointcloud.
-        (torch.Tensor): Indices of the downsampled points in the original pointcloud.
+        (torch.Tensor): Downsampled initial pointcloud.
+        (torch.Tensor): Downsampled final pointcloud.
     """
 
     if re.match(r"^fps$", type) is not None:
-        return sample_farthest_points(points, K=num_points, random_start_point=True)
+        ds_init_points, idx = sample_farthest_points(init_points, K=num_points, random_start_point=True)
+        if final_points is not None:
+            ds_final_points = masked_gather(final_points, idx)
+        else:
+            ds_final_points = None
+
+        return ds_init_points, ds_final_points
+    
     elif re.match(r"^random$", type) is not None:
-        random_idx = torch.randperm(points.shape[1])[:num_points]
-        return points[:, random_idx], random_idx
+        random_idx = torch.randperm(init_points.shape[1])[:num_points]
+        ds_init_points = init_points[:, random_idx]
+        if final_points is not None:
+            ds_final_points = final_points[:, random_idx]
+        else:
+            ds_final_points = None
+
+        return ds_init_points, ds_final_points
+    
     elif re.match(r"^random_0\.[0-9]$", type) is not None:
         prob = float(re.match(r"^random_(0\.[0-9])$", type).group(1))
         if np.random.random() > prob:
-            return sample_farthest_points(points, K=num_points, random_start_point=True)
+            ds_init_points, idx = sample_farthest_points(init_points, K=num_points, random_start_point=True)
+            if final_points is not None:
+                ds_final_points = masked_gather(final_points, idx)
+            else:
+                ds_final_points = None
         else:
-            random_idx = torch.randperm(points.shape[1])[:num_points]
-            return points[:, random_idx], random_idx
+            random_idx = torch.randperm(init_points.shape[1])[:num_points]
+            ds_init_points = init_points[:, random_idx]
+            if final_points is not None:
+                ds_final_points = final_points[:, random_idx]
+            else:
+                ds_final_points = None        
+
+        return ds_init_points, ds_final_points
+    
     elif re.match(r"^[0-9]+N_random_fps$", type) is not None:
         random_num_points = (
             int(re.match(r"^([0-9]+)N_random_fps$", type).group(1)) * num_points
         )
-        random_idx = torch.randperm(points.shape[1])[:random_num_points]
-        random_points = points[:, random_idx]
-        return sample_farthest_points(
-            random_points, K=num_points, random_start_point=True
-        )
+        random_idx = torch.randperm(init_points.shape[1])[:random_num_points]
+        random_init_points = init_points[:, random_idx]
+        ds_init_points, idx = sample_farthest_points(random_init_points, K=num_points, random_start_point=True)
+
+        if final_points is not None:
+            random_final_points = final_points[:, random_idx]
+            ds_final_points = masked_gather(random_final_points, idx)
+        else:
+            ds_final_points = None    
+
+        return ds_init_points, ds_final_points
     else:
         raise NotImplementedError(f"Downsample type {type} not implemented")
 
