@@ -70,9 +70,12 @@ class DedoDataset(data.Dataset):
         # initializing item dict
         # TODO: eventually, these keys will have to update with newer DEDO env
         item = {
-            "rot": torch.as_tensor(demo["rot"]).float(),
-            "trans": torch.as_tensor(demo["trans"]).float(),
+            # "rot": torch.as_tensor(demo["rot"]).float(),
+            # "trans": torch.as_tensor(demo["trans"]).float(),
+            "deform_transform": demo["deform_transform"].item(),
+            "rigid_transform": demo["rigid_transform"].item(),
             "deform_params": demo["deform_params"].item(),
+            "rigid_params": demo["rigid_params"].item(),
         }
 
         # downsample action
@@ -212,7 +215,8 @@ class DedoDataModule(L.LightningDataModule):
         exp_dir = (
             f"cloth={self.dataset_cfg.cloth_geometry}-{self.dataset_cfg.cloth_pose} " + \
             f"anchor={self.dataset_cfg.anchor_geometry}-{self.dataset_cfg.anchor_pose} " + \
-            f"hole={self.dataset_cfg.hole}"
+            f"hole={self.dataset_cfg.hole} " + \
+            f"robot={self.dataset_cfg.robot}"
         )
         self.root = Path(data_dir) / self.dataset_cfg.task / exp_dir
     
@@ -268,12 +272,14 @@ class DedoDataModule(L.LightningDataModule):
 
 # custom collate function to handle deform params
 def cloth_collate_fn(batch):
-    # batch is a list of dictionaries
-    # we need to convert it to a dictionary of lists
+    # batch can contain a list of dictionaries
+    # we need to convert those to a dictionary of lists
+    dict_keys = ["deform_transform", "rigid_transform", "deform_params", "rigid_params"]
     keys = batch[0].keys()
     out = {k: None for k in keys}
     for k in keys:
-        if k == "deform_params":
+        if k in dict_keys:
+        #if k == "deform_params":
             out[k] = [item[k] for item in batch]
         else:
             out[k] = torch.stack([item[k] for item in batch])

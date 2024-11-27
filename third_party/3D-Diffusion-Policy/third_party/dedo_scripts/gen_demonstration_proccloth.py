@@ -15,7 +15,7 @@ from PIL import Image
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root_dir', type=str, default='~/data', help='directory to save data')
+    parser.add_argument('--root_dir', type=str, default='~/data/proccloth', help='directory to save data')
     parser.add_argument('--num_episodes', type=int, default=5, help='number of episodes to run')
     parser.add_argument('--action_num_points', type=int, default=625, help='number of points in action point cloud')
     parser.add_argument('--anchor_num_points', type=int, default=1024, help='number of points in anchor point cloud')
@@ -234,21 +234,16 @@ if __name__ == '__main__':
                     rigid_params=rigid_params,
                 )
 
-                #breakpoint()
-                #counter += 1
-                #continue
-
                 # initializing tax3d demo
                 tax3d_demo = {
                     'action_pc': obs['action_pcd'],
                     'action_seg': np.ones(obs['action_pcd'].shape[0]),
                     'anchor_pc': obs['anchor_pcd'],
                     'anchor_seg': np.ones(obs['anchor_pcd'].shape[0]),
-                    # 'speed_factor': 1.0, # this is legacy?
-                    'rot': rigid_rotation,
-                    'trans': rigid_translation,
+                    'deform_transform': deform_transform,
+                    'rigid_transform': rigid_transform,
                     'deform_params': deform_params,
-                    # 'anchors': env.anchors, # this is legacy?
+                    'rigid_params': rigid_params,
                 }
 
                 # episode data

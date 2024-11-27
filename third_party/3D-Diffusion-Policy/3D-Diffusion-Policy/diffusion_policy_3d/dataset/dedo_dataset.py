@@ -14,8 +14,6 @@ from pytorch3d.transforms import (
     Rotate,
     axis_angle_to_matrix,
 )
-import pytorch3d.ops as torch3d_ops
-
 from non_rigid.utils.pointcloud_utils import downsample_pcd
 import os
 
@@ -91,31 +89,7 @@ class DedoDataset(BaseDataset):
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
-        # val_mask = get_val_mask(
-        #     n_episodes=self.replay_buffer.n_episodes, 
-        #     val_ratio=val_ratio,
-        #     seed=seed)
-        # train_mask = ~val_mask
-        # train_mask = downsample_mask(
-        #     mask=train_mask, 
-        #     max_n=max_train_episodes, 
-        #     seed=seed)
-        
 
-        # breakpoint()
-
-        # self.sampler = SequenceSampler(
-        #     replay_buffer=self.replay_buffer, 
-        #     sequence_length=horizon,
-        #     pad_before=pad_before, 
-        #     pad_after=pad_after,
-        #     episode_mask=train_mask)
-        # self.train_mask = train_mask
-        # self.horizon = horizon
-        # self.pad_before = pad_before
-        # self.pad_after = pad_after
-
-        # TODO: dont need to use get_val_mask, just load differnet split for val dataset :)
     def get_validation_dataset(self):
         val_set = copy.copy(self)
         val_zarr_path = os.path.join(self.zarr_dir, 'val.zarr')
@@ -130,19 +104,6 @@ class DedoDataset(BaseDataset):
             episode_mask=val_mask,
         )
         val_set.train_mask = val_mask
-
-
-    # def get_validation_dataset(self):
-    #     val_set = copy.copy(self)
-    #     val_set.sampler = SequenceSampler(
-    #         replay_buffer=self.replay_buffer, 
-    #         sequence_length=self.horizon,
-    #         pad_before=self.pad_before, 
-    #         pad_after=self.pad_after,
-    #         episode_mask=~self.train_mask
-    #         )
-    #     val_set.train_mask = ~self.train_mask
-    #     return val_set
     
     def get_normalizer(self, mode='limits', **kwargs):
         # this function should only be called after action_pcd and anchor_pcd have already been combined
@@ -165,7 +126,6 @@ class DedoDataset(BaseDataset):
         # TODO: might have to convert action and anchor pcds into a single point cloud here
         agent_pos = sample['state'].astype(np.float32)
         action = sample['action'].astype(np.float32)
-        # point_cloud = sample['point_cloud'].astype(np.float32)
         cloth = sample['cloth'].astype(np.int16)
         action_pcd = sample['action_pcd'].astype(np.float32)
         anchor_pcd = sample['anchor_pcd'].astype(np.float32)
@@ -173,10 +133,9 @@ class DedoDataset(BaseDataset):
 
         data = {
             'obs': {
-                # 'point_cloud': point_cloud, # T, 1024, 3, no rgb
                 'agent_pos': agent_pos, # T, D_pos
-                'action_pcd': action_pcd, # T, 580, 3
-                'anchor_pcd': anchor_pcd, # T, 580, 3
+                'action_pcd': action_pcd, # T, N_action, 3
+                'anchor_pcd': anchor_pcd, # T, N_anchor, 3
                 'cloth' : cloth,
                 'ground_truth' : ground_truth,
             },
@@ -229,24 +188,7 @@ class DedoDataset(BaseDataset):
                 point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=1)
             elif self.goal_conditioning == 'goal_flow':
                 goal_flow = ground_truth - action_pcd
-                point_cloud = torch.cat([action_pcd, anchor_pcd, goal_flow], dim=1)
-
-
-            # if self.goal_conditioning == 'ground_truth':
-            #     point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=1) # includes action, achor, and ground truth
-
-            # elif self.goal_conditioning == 'none' or 'goal_flow':
-            #     point_cloud = torch.cat([action_pcd, anchor_pcd], dim=1)
-
-            # # point_cloud = torch_data['obs']['point_cloud']
-            # scene_center = point_cloud.mean(dim=[0, 1], keepdim=True)
-
-            # # transform point cloud
-            # point_cloud = T.transform_points(point_cloud - scene_center) # + scene_center
-            # if self.goal_conditioning == 'goal_flow':
-            #     goal_flow = T.transform_points(ground_truth - action_pcd)
-            #     point_cloud = torch.cat([point_cloud, goal_flow], dim=1)
-            
+                point_cloud = torch.cat([action_pcd, anchor_pcd, goal_flow], dim=1)            
 
             agent_pos = torch_data['obs']['agent_pos']
             action = torch_data['action']
@@ -263,14 +205,6 @@ class DedoDataset(BaseDataset):
             action[:, 3:6] = T.transform_points(action[:, 3:6])
 
             # # update torch data
-            # if self.goal_conditioning == 'ground_truth' or self.goal_conditioning == 'goal_flow':
-            #         torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
-            #                                             np.zeros((point_cloud.shape[0], 2274 - point_cloud.shape[1], point_cloud.shape[2]))), 
-            #                                             axis=1)
-            # if self.goal_conditioning == 'none':
-            #     torch_data['obs']['point_cloud'] = np.concatenate((point_cloud, 
-            #                                         np.zeros((point_cloud.shape[0], 1250 - point_cloud.shape[1], point_cloud.shape[2]))), 
-            #                                         axis=1)
             torch_data['obs']['point_cloud'] = point_cloud
             torch_data['obs']['agent_pos'] = agent_pos
             torch_data['action'] = action
