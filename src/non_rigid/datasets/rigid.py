@@ -556,8 +556,10 @@ class RPDiffDataset(data.Dataset):
         self.root = root
         self.type = type
         self.dataset_cfg = dataset_cfg
+        self.rpdiff_task_name = dataset_cfg.rpdiff_task_name
+        self.rpdiff_task_type = dataset_cfg.rpdiff_task_type
 
-        self.dataset_dir = self.root / "task_name_mug_on_rack_multi"
+        self.dataset_dir = self.root / self.rpdiff_task_name / self.rpdiff_task_type
         self.split_dir = self.dataset_dir / "split_info"
         self.split_file = f"{self.type}_split.txt" if self.type != "val" else "train_val_split.txt"
 
@@ -570,7 +572,7 @@ class RPDiffDataset(data.Dataset):
         if self.dataset_cfg.num_demos is not None and self.type == "train":
             self.demo_files = self.demo_files[: self.dataset_cfg.num_demos]
             self.num_demos = len(self.demo_files)
-        print(f"Loaded {self.num_demos} {self.type} demos from {self.dataset_dir} with {self.split_file}")
+        print(f"Loaded {self.num_demos} {self.type} demos from {self.dataset_dir} with {self.split_file}, total of {self.__len__()} files")
 
     def __len__(self):
         if self.type == "train":
