@@ -93,7 +93,19 @@ class DedoEnv:
         else:
             self.num_points = 1024
             self.observation_space = spaces.Dict({
-                'point_cloud': spaces.Box(
+                # 'point_cloud': spaces.Box(
+                #     low=-np.inf,
+                #     high=np.inf,
+                #     shape=(self.num_points, 3),
+                #     dtype=np.float32
+                # ),
+                'action_pcd': spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(self.num_points, 3),
+                    dtype=np.float32
+                ),
+                'anchor_pcd': spaces.Box(
                     low=-np.inf,
                     high=np.inf,
                     shape=(self.num_points, 3),
@@ -136,14 +148,16 @@ class DedoEnv:
                 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
-            anchor_pcd = downsample_with_fps(anchor_pcd, 625)
-            point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
+            # anchor_pcd = downsample_with_fps(anchor_pcd, 1024)
+            # point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
             # point_cloud = np.concatenate([action_pcd, anchor_pcd], axis=0)
 
             # if point_cloud.shape[0] > self.num_points:
             #     point_cloud = downsample_with_fps(point_cloud, self.num_points)
             obs_dict = {
-                'point_cloud': point_cloud,
+                # 'point_cloud': point_cloud,
+                'action_pcd': action_pcd,
+                'anchor_pcd': anchor_pcd,
                 'agent_pos': obs['gripper_state'],
             }
         return obs_dict

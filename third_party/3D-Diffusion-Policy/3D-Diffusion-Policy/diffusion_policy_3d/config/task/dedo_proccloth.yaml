@@ -23,6 +23,7 @@ env_runner:
   task_name: proccloth
   viz: False
   control_type: ee_position
+  goal_conditioning: goal_flow
 
 inference:
   seed: 1
@@ -47,7 +48,7 @@ dataset:
   anchor_pose: random
   hole: single
   robot: True
-  goal_conditioning: ground_truth
+  goal_conditioning: goal_flow
 
   action_size: 512
   anchor_size: 512

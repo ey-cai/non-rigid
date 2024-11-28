@@ -145,7 +145,7 @@ class TrainDP3Workspace:
         if env_runner is not None:
             assert isinstance(env_runner, BaseRunner)
         
-        cfg.logging.name = str(cfg.logging.name)
+        cfg.logging.name = str(cfg.logging.group)
         cprint("-----------------------------", "yellow")
         cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
@@ -405,7 +405,7 @@ class TrainDP3Workspace:
 
         train_dataset = DedoDataset(dataset_dir + "/train_tax3d")
         val_dataset = DedoDataset(dataset_dir + "/val_tax3d")
-        # val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
+        val_ood_dataset = DedoDataset(dataset_dir + "/val_ood_tax3d")
 
         # load the latest checkpoint
 
@@ -449,12 +449,12 @@ class TrainDP3Workspace:
             if isinstance(value, float):
                 cprint(f"{key}: {value:.4f}", 'magenta')
             
-        # runner_log = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
+        runner_log = env_runner.run_dataset(policy, val_ood_dataset, 'val_ood')
 
-        # cprint(f"---------------- Eval Results for Val. OOD --------------", 'magenta')
-        # for key, value in runner_log.items():
-        #     if isinstance(value, float):
-        #         cprint(f"{key}: {value:.4f}", 'magenta')
+        cprint(f"---------------- Eval Results for Val. OOD --------------", 'magenta')
+        for key, value in runner_log.items():
+            if isinstance(value, float):
+                cprint(f"{key}: {value:.4f}", 'magenta')
 
 
     @property

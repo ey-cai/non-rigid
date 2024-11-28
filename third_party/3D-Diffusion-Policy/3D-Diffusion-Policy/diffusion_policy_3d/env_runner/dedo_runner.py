@@ -18,8 +18,18 @@ from diffusion_policy_3d.env_runner.base_runner import BaseRunner
 import diffusion_policy_3d.common.logger_util as logger_util
 
 from non_rigid.utils.vis_utils import plot_diffusion
+from non_rigid.utils.pointcloud_utils import downsample_pcd
 
 from PIL import Image
+
+
+def downsample_obs(action, anchor, goal):
+    _, action_indices = downsample_pcd(action[[0], ...], 512, type='fps')
+    _, anchor_indices = downsample_pcd(anchor[[0], ...], 512, type='fps')
+    action_indices = action_indices.squeeze()
+    anchor_indices = anchor_indices.squeeze()
+    return action[:, action_indices, :], anchor[:, anchor_indices, :], goal[action_indices, :]
+
 
 class DedoRunner(BaseRunner):
     def __init__(self,
@@ -33,6 +43,7 @@ class DedoRunner(BaseRunner):
                  viz=False,
                  control_type='position', # position or velocity
                  tax3d=False,
+                 goal_conditioning='goal_flow'
                  ):
         super().__init__(output_dir)
         self.task_name = task_name
@@ -59,9 +70,9 @@ class DedoRunner(BaseRunner):
         #self.n_action_steps = n_action_steps
         #self.max_steps = max_steps
         self.tqdm_interval_sec = tqdm_interval_sec
-
         self.logger_util_test = logger_util.LargestKRecorder(K=3)
         self.logger_util_test10 = logger_util.LargestKRecorder(K=5)
+        self.goal_conditioning = goal_conditioning
 
         #################################################
         # determining experiment type based on task  name
@@ -148,7 +159,6 @@ class DedoRunner(BaseRunner):
         del env
         return log_data
     
-
     def run_dataset(self, policy: BasePolicy, dataset: data.Dataset, dataset_name: str):
         device = policy.device
         dtype = policy.dtype
@@ -177,18 +187,20 @@ class DedoRunner(BaseRunner):
             # get rot, trans, deform params
             demo = dataset[id]
             deform_params = demo['deform_params'][()]
-            rigid_transform = {
-                'rotation': demo['rot'],
-                'translation': demo['trans'],
-            }
+            deform_transform = demo['deform_transform'][()]
+            rigid_params = demo['rigid_params'][()]
+            rigid_transform = demo['rigid_transform'][()]
             goal_pc = demo['action_pc'] + demo['flow']
             goal_pc = torch.from_numpy(goal_pc).to(device=device)
 
             obs = env.reset(
                 deform_params=deform_params,
+                deform_transform=deform_transform,
+                rigid_params=rigid_params,
                 rigid_transform=rigid_transform,
             )
             policy.reset()
+
 
             done = False
             # don't need to iterate through max steps
@@ -200,7 +212,6 @@ class DedoRunner(BaseRunner):
                 obs_dict = dict_apply(np_obs_dict,
                                       lambda x: torch.from_numpy(x).to(
                                           device=device))
-        
                 # run policy
                 with torch.no_grad():
                     obs_dict_input = {}  # flush unused keys
@@ -211,14 +222,55 @@ class DedoRunner(BaseRunner):
                         obs_dict_input['seg_anchor'] = obs_dict['seg_anchor'].int()
                         action_dict = policy.predict_action(obs_dict_input, deform_params)
                     else:
-                        obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
-                        obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
-                        bsz = obs_dict_input['point_cloud'].shape[0]
-                        hor = obs_dict_input['point_cloud'].shape[1]
-                        cloth_size = goal_pc.shape[0]
-                        goal_pointcloud = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)
-                        obs_dict_input['ground_truth'] = goal_pointcloud
-                        obs_dict_input['goal_flow'] = goal_pointcloud - obs_dict_input['point_cloud'][:,:,:cloth_size]
+                        # first, downsample action, anchor and goal point cloud
+                        action_ds, anchor_ds, goal_ds = downsample_obs(obs_dict['action_pcd'], obs_dict['anchor_pcd'], goal_pc)
+                        hor = action_ds.shape[0]
+                        goal_ds = torch.tile(goal_ds, (hor, 1, 1))
+                        scene_center = torch.cat([action_ds, anchor_ds], dim=1).mean(dim=1, keepdim=True)
+
+                        # center the point clouds
+                        action_ds = action_ds - scene_center
+                        anchor_ds = anchor_ds - scene_center
+                        goal_ds = goal_ds - scene_center
+
+                        # center agent pos
+                        agent_pos = obs_dict['agent_pos']
+                        agent_pos[:, 0:3] = agent_pos[:, 0:3] - scene_center.squeeze()
+                        agent_pos[:, 6:9] = agent_pos[:, 6:9] - scene_center.squeeze()
+
+                        # populating input dict
+                        obs_dict_input['point_cloud'] = torch.cat([action_ds, anchor_ds], dim=1).unsqueeze(0)
+                        obs_dict_input['agent_pos'] = agent_pos.unsqueeze(0)
+
+                        # handle goal conditioning, if needed
+                        if self.goal_conditioning == 'ground_truth':
+                            obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'], goal_ds.unsqueeze(0)], dim=-2)
+                        elif self.goal_conditioning == 'goal_flow':
+                            goal_flow = goal_ds - action_ds
+                            obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'], goal_flow.unsqueeze(0)], dim=-2)
+
+                        # # Center just action + anchor in the scene
+                        # obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
+                        # scene_center = obs_dict_input['point_cloud'].mean(dim=[1,2], keepdim=True)
+                        # obs_dict_input['point_cloud'] = obs_dict_input['point_cloud'] - scene_center
+                        # obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
+                        # obs_dict_input['agent_pos'][...,0:3] = obs_dict['agent_pos'][...,0:3] - scene_center
+                        # obs_dict_input['agent_pos'][...,6:9] = obs_dict['agent_pos'][...,6:9] - scene_center
+
+                        # # Add goal conditioning if needed
+                        # if self.goal_conditioning != 'none':
+                        #     bsz = obs_dict_input['point_cloud'].shape[0]
+                        #     hor = obs_dict_input['point_cloud'].shape[1]
+                        #     cloth_size = goal_pc.shape[0]
+                        #     goal_pointcloud = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)
+                            
+                        #     if self.goal_conditioning == 'ground_truth':
+                        #         goal_pointcloud = goal_pointcloud - scene_center
+                        #         obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],goal_pointcloud], dim=-2) 
+                        #     elif self.goal_conditioning == 'goal_flow':
+                        #         goal_flow = goal_pointcloud - obs_dict_input['point_cloud'][:,:,:cloth_size]
+                        #         obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],goal_flow], dim=-2)
+
                         action_dict = policy.predict_action(obs_dict_input, evaluation = True)
 
                 # device transfer
