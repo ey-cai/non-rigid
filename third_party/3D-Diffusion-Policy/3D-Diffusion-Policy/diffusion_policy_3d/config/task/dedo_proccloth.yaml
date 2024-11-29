@@ -13,6 +13,10 @@ shape_meta: &shape_meta
   action:
     shape: [6]
 
+action_size: 512
+anchor_size: 512
+# goal_conditioning: gt_pcd # [gt_pcd, gt_flow, tax3d_pcd, tax3d_flow, none] types of goal conditioning
+
 env_runner:
   _target_: diffusion_policy_3d.env_runner.dedo_runner.DedoRunner
   n_episodes: 1 # 20
@@ -23,7 +27,7 @@ env_runner:
   task_name: proccloth
   viz: False
   control_type: ee_position
-  goal_conditioning: goal_flow
+  goal_conditioning: ${policy.goal_conditioning}
 
 inference:
   seed: 1
@@ -31,16 +35,8 @@ inference:
 
 dataset:
   _target_: diffusion_policy_3d.dataset.dedo_dataset.DedoDataset
-  # zarr_path: data/dedo_single_cloth_expert.zarr
-  # zarr_path: ~/Documents/3D-Diffusion-Policy/3D-Diffusion-Policy/data/dedo_single_cloth_random_expert.zarr
-  # zarr_path: ~/Documents/data/dedo_single_cloth_random_expert.zarr
-  # TODO: change this to be a directory, and load the val and val ood from their separate files
 
-
-  root_dir: ~/data
-  # root_dir: ~/datasets/nrp/ProcCloth
-  # root_dir: ~/Documents/data
-  # root_dir: ~/Documents/data/tax3d
+  root_dir: ~/data/proccloth
 
   cloth_geometry: multi
   cloth_pose: random
@@ -48,16 +44,16 @@ dataset:
   anchor_pose: random
   hole: single
   robot: True
-  goal_conditioning: goal_flow
+  goal_conditioning: ${policy.goal_conditioning}
 
-  action_size: 512
-  anchor_size: 512
+  action_size: ${task.action_size}
+  anchor_size: ${task.anchor_size}
 
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}
   pad_after: ${eval:'${n_action_steps}-1'}
-  seed: 42
+  # seed: 42
   # val_ratio: 0.02
-  val_ratio: 0.0
-  max_train_episodes: 90 # TODO: may need to modify this
+  # val_ratio: 0.0
+  # max_train_episodes: 90 # TODO: may need to modify this
   random_augment: True

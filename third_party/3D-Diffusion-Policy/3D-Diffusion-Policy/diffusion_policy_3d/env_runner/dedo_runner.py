@@ -43,7 +43,7 @@ class DedoRunner(BaseRunner):
                  viz=False,
                  control_type='position', # position or velocity
                  tax3d=False,
-                 goal_conditioning='goal_flow'
+                 goal_conditioning='none'
                  ):
         super().__init__(output_dir)
         self.task_name = task_name
@@ -243,33 +243,12 @@ class DedoRunner(BaseRunner):
                         obs_dict_input['agent_pos'] = agent_pos.unsqueeze(0)
 
                         # handle goal conditioning, if needed
-                        if self.goal_conditioning == 'ground_truth':
+                        if self.goal_conditioning == 'gt_pcd':
                             obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'], goal_ds.unsqueeze(0)], dim=-2)
-                        elif self.goal_conditioning == 'goal_flow':
+                        elif self.goal_conditioning == 'gt_flow':
                             goal_flow = goal_ds - action_ds
                             obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'], goal_flow.unsqueeze(0)], dim=-2)
-
-                        # # Center just action + anchor in the scene
-                        # obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
-                        # scene_center = obs_dict_input['point_cloud'].mean(dim=[1,2], keepdim=True)
-                        # obs_dict_input['point_cloud'] = obs_dict_input['point_cloud'] - scene_center
-                        # obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
-                        # obs_dict_input['agent_pos'][...,0:3] = obs_dict['agent_pos'][...,0:3] - scene_center
-                        # obs_dict_input['agent_pos'][...,6:9] = obs_dict['agent_pos'][...,6:9] - scene_center
-
-                        # # Add goal conditioning if needed
-                        # if self.goal_conditioning != 'none':
-                        #     bsz = obs_dict_input['point_cloud'].shape[0]
-                        #     hor = obs_dict_input['point_cloud'].shape[1]
-                        #     cloth_size = goal_pc.shape[0]
-                        #     goal_pointcloud = goal_pc.unsqueeze(0).unsqueeze(0).repeat(bsz,hor,1,1)
-                            
-                        #     if self.goal_conditioning == 'ground_truth':
-                        #         goal_pointcloud = goal_pointcloud - scene_center
-                        #         obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],goal_pointcloud], dim=-2) 
-                        #     elif self.goal_conditioning == 'goal_flow':
-                        #         goal_flow = goal_pointcloud - obs_dict_input['point_cloud'][:,:,:cloth_size]
-                        #         obs_dict_input['point_cloud'] = torch.cat([obs_dict_input['point_cloud'],goal_flow], dim=-2)
+                        # TODO: this needs to handle tax3d inference for tax3d predictions
 
                         action_dict = policy.predict_action(obs_dict_input, evaluation = True)
 

@@ -56,7 +56,7 @@ policy:
 
   use_pc_color: false
   pointnet_type: "pointnet"
-  goal_conditioning: "ground_truth"
+  goal_conditioning: "tax3d_pcd" # [none, gt_pcd, gt_flow, tax3d_pcd, tax3d_flow, ground_truth] types of goal conditioning
 
   pointcloud_encoder_cfg:
     in_channels: 3
@@ -99,7 +99,7 @@ training:
   device: "cuda:0"
   seed: 42
   debug: False
-  resume: True
+  resume: False
   lr_scheduler: cosine
   lr_warmup_steps: 500
   num_epochs: 3000

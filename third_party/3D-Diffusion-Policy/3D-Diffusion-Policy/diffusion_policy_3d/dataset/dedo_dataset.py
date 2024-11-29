@@ -31,24 +31,24 @@ class DedoDataset(BaseDataset):
             horizon=1,
             pad_before=0,
             pad_after=0,
-            seed=42,
-            val_ratio=0.0,
-            max_train_episodes=None,
-            task_name=None,
+            # seed=42,
+            # val_ratio=0.0,
+            # max_train_episodes=None,
+            # task_name=None,
             random_augment=False,
             cloth_geometry='single',
             cloth_pose='fixed',
             anchor_geometry='single',
             anchor_pose='random',
             hole='single',
-            goal_conditioning='ground_truth',
+            goal_conditioning='none',
             robot=True,
             action_size=512,
             anchor_size=512,
             ):
         super().__init__()
         self.root_dir = root_dir
-        self.task_name = task_name
+        # self.task_name = task_name
         self.random_augment = random_augment
 
         self.cloth_geometry = cloth_geometry
@@ -75,8 +75,14 @@ class DedoDataset(BaseDataset):
         self.zarr_dir = os.path.join(root_dir, dataset_dir)
         train_zarr_path = os.path.join(self.zarr_dir, 'train.zarr')
 
+        self.zarr_keys = ['state', 'action', 'cloth', 'action_pcd', 'anchor_pcd']
+        if self.goal_conditioning.startswith('gt'):
+            self.zarr_keys.append('ground_truth')
+        elif self.goal_conditioning.startswith('tax3d'):
+            self.zarr_keys.append('tax3d_pred')
+
         self.replay_buffer = ReplayBuffer.copy_from_path(
-            train_zarr_path, keys=['point_cloud', 'state', 'action', 'cloth', 'action_pcd', 'anchor_pcd', 'ground_truth'])
+            train_zarr_path, keys=self.zarr_keys)
         train_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
@@ -94,7 +100,7 @@ class DedoDataset(BaseDataset):
         val_set = copy.copy(self)
         val_zarr_path = os.path.join(self.zarr_dir, 'val.zarr')
         val_set.replay_buffer = ReplayBuffer.copy_from_path(
-            val_zarr_path, keys=['point_cloud', 'state', 'action', 'cloth', 'action_pcd', 'anchor_pcd', 'ground_truth'])
+            val_zarr_path, keys=self.zarr_keys)
         val_mask = np.ones(val_set.replay_buffer.n_episodes, dtype=bool)
         val_set.sampler = SequenceSampler(
             replay_buffer=val_set.replay_buffer,
@@ -129,7 +135,13 @@ class DedoDataset(BaseDataset):
         cloth = sample['cloth'].astype(np.int16)
         action_pcd = sample['action_pcd'].astype(np.float32)
         anchor_pcd = sample['anchor_pcd'].astype(np.float32)
-        ground_truth = sample['ground_truth'].astype(np.float32)
+        # ground_truth = sample['ground_truth'].astype(np.float32)
+
+        # extracting goal based on goal-conditioning type
+        if self.goal_conditioning.startswith('gt'):
+            goal = sample['ground_truth'].astype(np.float32)
+        elif self.goal_conditioning.startswith('tax3d'):
+            goal = sample['tax3d_pred'].astype(np.float32)
 
         data = {
             'obs': {
@@ -137,10 +149,13 @@ class DedoDataset(BaseDataset):
                 'action_pcd': action_pcd, # T, N_action, 3
                 'anchor_pcd': anchor_pcd, # T, N_anchor, 3
                 'cloth' : cloth,
-                'ground_truth' : ground_truth,
             },
             'action': action # T, D_action
         }
+
+        # extracting and adding goal based on goal-conditioning type
+        if self.goal_conditioning != 'none':
+            data['obs']['goal'] = goal
         return data
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
@@ -158,7 +173,7 @@ class DedoDataset(BaseDataset):
             cloth_size = torch_data['obs']['cloth'][0].item() # cloths across horizon should always be the same size
             action_pcd = torch_data['obs']['action_pcd'][:, :cloth_size, :]
             anchor_pcd = torch_data['obs']['anchor_pcd']
-            ground_truth = torch_data['obs']['ground_truth'][:, :cloth_size, :]
+            # ground_truth = torch_data['obs']['goal'][:, :cloth_size, :]
 
             # downsampling point clouds; action and ground-truth maintain correspondences
             _, action_indices = downsample_pcd(action_pcd[[0], ...], self.action_size, type='fps')
@@ -168,27 +183,36 @@ class DedoDataset(BaseDataset):
 
             action_pcd = action_pcd[:, action_indices, :]
             anchor_pcd = anchor_pcd[:, anchor_indices, :]
-            ground_truth = ground_truth[:, action_indices, :]
+            # ground_truth = ground_truth[:, action_indices, :]
 
             # scene-centering
             scene_center = torch.cat([action_pcd, anchor_pcd], dim=1).mean(dim=1, keepdim=True)
             action_pcd = action_pcd - scene_center
             anchor_pcd = anchor_pcd - scene_center
-            ground_truth = ground_truth - scene_center
+            # ground_truth = ground_truth - scene_center
 
             # transform point cloud
             action_pcd = T.transform_points(action_pcd)
             anchor_pcd = T.transform_points(anchor_pcd)
-            ground_truth = T.transform_points(ground_truth)
+            # ground_truth = T.transform_points(ground_truth)
 
-            # combining point clouds
+            # combining point clouds, and processing goal if necessary
             if self.goal_conditioning == 'none':
                 point_cloud = torch.cat([action_pcd, anchor_pcd], dim=1)
-            elif self.goal_conditioning == 'ground_truth':
-                point_cloud = torch.cat([action_pcd, anchor_pcd, ground_truth], dim=1)
-            elif self.goal_conditioning == 'goal_flow':
-                goal_flow = ground_truth - action_pcd
-                point_cloud = torch.cat([action_pcd, anchor_pcd, goal_flow], dim=1)            
+            else:
+                goal = torch_data['obs']['goal'][..., :cloth_size, :]
+                # for tax3d predictions, randomly sample one of the goals
+                if self.goal_conditioning.startswith('tax3d'):
+                    random_goal = torch.randint(0, goal.shape[1], (1,))
+                    goal = goal[:, random_goal, ...].squeeze(1)
+                goal = goal[:, action_indices, :]
+                goal = goal - scene_center
+                goal = T.transform_points(goal)
+
+                if self.goal_conditioning.endswith('pcd'):
+                    point_cloud = torch.cat([action_pcd, anchor_pcd, goal], dim=1)
+                elif self.goal_conditioning.endswith('flow'):
+                    point_cloud = torch.cat([action_pcd, anchor_pcd, goal - action_pcd], dim=1)
 
             agent_pos = torch_data['obs']['agent_pos']
             action = torch_data['action']
