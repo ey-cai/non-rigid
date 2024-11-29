@@ -10,6 +10,9 @@ exp_name: "debug"
 n_obs_steps: 1
 n_action_steps: 1
 
+policy:
+  goal_conditioning: "none" # [none, gt_pcd, gt_flow, tax3d_pcd, tax3d_flow, ground_truth] types of goal conditioning
+
 training:
   device: "cuda:0"
   seed: 42

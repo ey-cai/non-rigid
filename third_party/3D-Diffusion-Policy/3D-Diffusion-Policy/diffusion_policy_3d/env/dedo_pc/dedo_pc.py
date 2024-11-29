@@ -77,18 +77,18 @@ class DedoEnv:
                     shape=(self.num_anchor_points, 3),
                     dtype=np.float32
                 ),
-                'seg': spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(self.num_action_points,),
-                    dtype=np.float32
-                ),
-                'seg_anchor': spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(self.num_anchor_points,),
-                    dtype=np.float32
-                ),
+                # 'seg': spaces.Box(
+                #     low=-np.inf,
+                #     high=np.inf,
+                #     shape=(self.num_action_points,),
+                #     dtype=np.float32
+                # ),
+                # 'seg_anchor': spaces.Box(
+                #     low=-np.inf,
+                #     high=np.inf,
+                #     shape=(self.num_anchor_points,),
+                #     dtype=np.float32
+                # ),
             })
         else:
             self.num_points = 1024
@@ -144,8 +144,8 @@ class DedoEnv:
             obs_dict = {
                 'pc_action': action_pcd,
                 'pc_anchor': anchor_pcd,
-                'seg': np.ones(action_pcd.shape[0]),
-                'seg_anchor': np.zeros(anchor_pcd.shape[0]),
+                # 'seg': np.ones(action_pcd.shape[0]),
+                # 'seg_anchor': np.zeros(anchor_pcd.shape[0]),
             }
         else:
             # anchor_pcd = downsample_with_fps(anchor_pcd, 1024)

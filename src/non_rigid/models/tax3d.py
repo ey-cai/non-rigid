@@ -489,21 +489,30 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
                 "T_goal2world": T_goal2world.get_matrix(),
             }
 
-            # if relative action-anchor pose, add the relative transform
+            # # if relative action-anchor pose, add the relative transform
+            # if run_cfg.dataset.rel_pose:
+            #     rel_pose = T_action2world.compose(T_goal2world.inverse())
+            #     # converting relative pose based on representation type
+            #     if run_cfg.dataset.rel_pose_type == "quaternion":
+            #         translation = rel_pose.get_matrix()[:, 3, :3]
+            #         rotation = matrix_to_quaternion(rel_pose.get_matrix()[:, :3, :3])
+            #         rel_pose = torch.cat([translation, rotation], dim=1)
+            #     elif run_cfg.dataset.rel_pose_type == "rotation_6d":
+            #         translation = rel_pose.get_matrix()[:, 3, :3]
+            #         rotation = matrix_to_rotation_6d(rel_pose.get_matrix()[:, :3, :3])
+            #         rel_pose = torch.cat([translation, rotation], dim=1)
+            #     elif run_cfg.dataset.rel_pose_type == "logmap":
+            #         rel_pose = rel_pose.get_se3_log()
+            #     item["rel_pose"] = rel_pose
+            
+            # handle relative pose
             if run_cfg.dataset.rel_pose:
-                rel_pose = T_action2world.compose(T_goal2world.inverse())
-                # converting relative pose based on representation type
-                if run_cfg.dataset.rel_pose_type == "quaternion":
-                    translation = rel_pose.get_matrix()[:, 3, :3]
-                    rotation = matrix_to_quaternion(rel_pose.get_matrix()[:, :3, :3])
-                    rel_pose = torch.cat([translation, rotation], dim=1)
-                elif run_cfg.dataset.rel_pose_type == "rotation_6d":
-                    translation = rel_pose.get_matrix()[:, 3, :3]
-                    rotation = matrix_to_rotation_6d(rel_pose.get_matrix()[:, :3, :3])
-                    rel_pose = torch.cat([translation, rotation], dim=1)
-                elif run_cfg.dataset.rel_pose_type == "logmap":
-                    rel_pose = rel_pose.get_se3_log()
-                item["rel_pose"] = rel_pose
+                if run_cfg.dataset.rel_pose_type == "translation":
+                    # relative translation between action and anchor
+                    rel_pose = action_center - anchor_center
+                    item["rel_pose"] = rel_pose
+                else:
+                    raise ValueError(f"Invalid relative pose type: {run_cfg.dataset.rel_pose_type}")
 
         pred_dict = self.predict(item, run_cfg.inference.num_trials, progress=False)
         pred_action = pred_dict["point"]["pred_world"]

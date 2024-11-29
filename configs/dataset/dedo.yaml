@@ -1,6 +1,7 @@
 name: dedo
-data_dir: "~/Documents/data/"
+data_dir: "~/data/"
 task: proccloth
+robot: True
 
 train_size: null # (int, null) Length of the train dataset
 val_size: null # (int, null) Length of the validation dataset

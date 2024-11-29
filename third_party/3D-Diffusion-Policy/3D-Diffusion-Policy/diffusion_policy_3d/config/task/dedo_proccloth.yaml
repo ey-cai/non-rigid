@@ -28,6 +28,8 @@ env_runner:
   viz: False
   control_type: ee_position
   goal_conditioning: ${policy.goal_conditioning}
+  action_size: ${task.action_size}
+  anchor_size: ${task.anchor_size}
 
 inference:
   seed: 1
@@ -45,7 +47,6 @@ dataset:
   hole: single
   robot: True
   goal_conditioning: ${policy.goal_conditioning}
-
   action_size: ${task.action_size}
   anchor_size: ${task.anchor_size}
 
