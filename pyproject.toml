@@ -95,6 +95,7 @@ module = [
     "gif.*",
     "gym.*",
     "plotly.*",
+    "PointTransformerV3.*",
     "pybullet.*",
     "pybullet_data.*",
     "pybullet_utils.*",

@@ -644,6 +644,7 @@ class ProcClothFlowDataModule(L.LightningDataModule):
             shuffle=True if self.stage == "fit" else False,
             num_workers=self.num_workers,
             collate_fn=cloth_collate_fn,
+            drop_last=True,
         )
 
     def val_dataloader(self):
@@ -653,6 +654,7 @@ class ProcClothFlowDataModule(L.LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=cloth_collate_fn,
+            drop_last=True,
         )
         val_ood_dataloader = data.DataLoader(
             self.val_ood_dataset,
@@ -660,6 +662,7 @@ class ProcClothFlowDataModule(L.LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=cloth_collate_fn,
+            drop_last=True,
         )
         return val_dataloader, val_ood_dataloader
 

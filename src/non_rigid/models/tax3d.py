@@ -359,7 +359,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         )
 
         # additional logging
-        if do_additional_logging and False:
+        if do_additional_logging:
             # winner-take-all predictions
             pred_wta_dict = self.predict_wta(batch, self.num_wta_trials)
 
