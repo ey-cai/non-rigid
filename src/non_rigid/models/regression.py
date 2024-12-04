@@ -1,51 +1,41 @@
-from typing import Any, Dict
-
 import lightning as L
 import numpy as np
-import omegaconf
-import plotly.express as px
-import rpad.pyg.nets.dgcnn as dgcnn
-import rpad.visualize_3d.plots as vpl
 import torch
 import torch.nn.functional as F
-import torch_geometric.data as tgd
-import torch_geometric.transforms as tgt
-import torchvision as tv
 import wandb
 from diffusers import get_cosine_schedule_with_warmup
 from pytorch3d.transforms import Transform3d
 from torch import nn, optim
-from torch_geometric.nn import fps
 
-from non_rigid.metrics.error_metrics import get_pred_pcd_rigid_errors
-from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pc_nn
-from non_rigid.models.dit.diffusion import create_diffusion
-from non_rigid.models.dit.models import (
-    LinearRegressionModel,
-    DiT_PointCloud_Cross,
-)
+from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse
+from non_rigid.models.dit.models import DiT_PointCloud_Cross, LinearRegressionModel
 from non_rigid.utils.logging_utils import viz_predicted_vs_gt
 from non_rigid.utils.pointcloud_utils import expand_pcd
+
 
 def LinearRegression_xS(**kwargs):
     return LinearRegressionModel(depth=5, hidden_size=132, num_heads=4, **kwargs)
 
+
 def DiT_PointCloud_Cross_xS(**kwargs):
     return DiT_PointCloud_Cross(depth=5, hidden_size=132, num_heads=4, **kwargs)
+
 
 models = {
     "linear_regression_xS": LinearRegression_xS,
     "regression_xS": DiT_PointCloud_Cross_xS,
 }
 
+
 def get_model(model_cfg):
     model_name = f"{model_cfg.name}_{model_cfg.size}"
     return models[model_name]
 
+
 class LinearRegression(nn.Module):
     def __init__(
-            self,
-            model_cfg=None,
+        self,
+        model_cfg=None,
     ):
         super().__init__()
         self.model = get_model(model_cfg)(
@@ -77,19 +67,17 @@ class LinearRegressionTrainingModule(L.LightningModule):
 
     def forward(self, batch, mode="train"):
         # Extract point clouds from batch
-        pos = batch["pc"].permute(0, 2, 1) # (B, C, N)
-        pc_action = batch["pc_action"].permute(0, 2, 1) # (B, C, N)
-        pc_anchor = batch["pc_anchor"].permute(0, 2, 1) # (B, C, N)
+        pos = batch["pc"].permute(0, 2, 1)  # (B, C, N)
+        pc_action = batch["pc_action"].permute(0, 2, 1)  # (B, C, N)
+        pc_anchor = batch["pc_anchor"].permute(0, 2, 1)  # (B, C, N)
 
         # Setup data required by the model
-        model_kwargs = dict(
-            x=pc_action, y=pc_anchor
-        )
+        model_kwargs = dict(x=pc_action, y=pc_anchor)
         pred_pos = self.network(**model_kwargs)
 
         loss = F.mse_loss(pred_pos, pos)
         return None, loss
-    
+
     @torch.no_grad()
     def predict(
         self,
@@ -126,7 +114,7 @@ class LinearRegressionTrainingModule(L.LightningModule):
             num_warmup_steps=self.lr_warmup_steps,
         )
         return [optimizer], [scheduler]
-    
+
     def training_step(self, batch, batch_idx):
         self.train()
         _, loss = self(batch, "train")
@@ -146,7 +134,7 @@ class LinearRegressionTrainingModule(L.LightningModule):
         )
 
         # Additional logging
-        if do_additional_logging:
+        if do_additional_logging and False:
             pred_dict = self.predict(batch)
             pred_action = pred_dict["pred_action"]
             cos_sim = pred_dict["cos_sim"]
@@ -177,7 +165,7 @@ class LinearRegressionTrainingModule(L.LightningModule):
             wandb.log({"train/predicted_vs_gt": predicted_vs_gt_viz})
 
         return loss
-    
+
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         self.eval()
         with torch.no_grad():
@@ -220,16 +208,20 @@ class LinearRegressionTrainingModule(L.LightningModule):
 
     @torch.no_grad()
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        raise NotImplementedError("Predict step not implemented for LinearRegressionTrainingModule")
-    
+        raise NotImplementedError(
+            "Predict step not implemented for LinearRegressionTrainingModule"
+        )
+
     def test_step(self, batch, batch_idx, dataloader_idx=0):
-        raise NotImplementedError("Test step not implemented for LinearRegressionTrainingModule")
-    
+        raise NotImplementedError(
+            "Test step not implemented for LinearRegressionTrainingModule"
+        )
+
 
 class LinearRegressionInferenceModule(L.LightningModule):
     def __init__(
-        self, 
-        network, 
+        self,
+        network,
         inference_cfg,
         model_cfg,
     ):
@@ -250,7 +242,7 @@ class LinearRegressionInferenceModule(L.LightningModule):
 
     @torch.no_grad()
     def predict(
-        self, 
+        self,
         batch,
         num_samples,
         progress=False,
@@ -277,7 +269,9 @@ class LinearRegressionInferenceModule(L.LightningModule):
         )
         # computing pred flow in world frame
         pc_action = pc_action.permute(0, 2, 1)
-        pred_flow = T_goal2world.transform_points(pred_action) - T_action2world.transform_points(pc_action)
+        pred_flow = T_goal2world.transform_points(
+            pred_action
+        ) - T_action2world.transform_points(pc_action)
         return {
             "pred_action": pred_action,
             "pred_world_flow": pred_flow,
@@ -300,17 +294,15 @@ class LinearRegressionInferenceModule(L.LightningModule):
             "cos_sim_wta": cos_sim,
             "rmse_wta": rmse,
         }
-    
-
-
 
 
 class RegressionNetwork(nn.Module):
     """
-    Network built on the Diffusion Transformer architecture, but adapted for regressive inference. All 
-    architecture design is kept the same, but the input time-step is fixed to 0, and the reverse 
+    Network built on the Diffusion Transformer architecture, but adapted for regressive inference. All
+    architecture design is kept the same, but the input time-step is fixed to 0, and the reverse
     diffusion process is skipped.
     """
+
     def __init__(self, model_cfg=None):
         super().__init__()
         self.model = get_model(model_cfg)(
@@ -330,8 +322,8 @@ class RegressionModule(L.LightningModule):
         super().__init__()
         self.network = network
         self.model_cfg = cfg.model
-        self.prediction_type = self.model_cfg.type # flow or point
-        self.mode = cfg.mode # train or eval
+        self.prediction_type = self.model_cfg.type  # flow or point
+        self.mode = cfg.mode  # train or eval
 
         # prediction type-specific processing
         if self.prediction_type == "flow":
@@ -340,7 +332,7 @@ class RegressionModule(L.LightningModule):
             self.label_key = "pc"
         else:
             raise ValueError(f"Invalid prediction type: {self.prediction_type}")
-        
+
         # mode-specific processing
         if self.mode == "train":
             self.run_cfg = cfg.training
@@ -349,14 +341,16 @@ class RegressionModule(L.LightningModule):
             self.weight_decay = self.run_cfg.weight_decay
             self.num_training_steps = self.run_cfg.num_training_steps
             self.lr_warmup_steps = self.run_cfg.lr_warmup_steps
-            self.additional_train_logging_period = self.run_cfg.additional_train_logging_period
+            self.additional_train_logging_period = (
+                self.run_cfg.additional_train_logging_period
+            )
         elif self.mode == "eval":
             self.run_cfg = cfg.inference
             # inference-specific params
             self.num_trials = self.run_cfg.num_trials
         else:
             raise ValueError(f"Invalid mode: {self.mode}")
-        
+
         # data params
         self.batch_size = self.run_cfg.batch_size
         self.val_batch_size = self.run_cfg.val_batch_size
@@ -375,24 +369,24 @@ class RegressionModule(L.LightningModule):
             num_training_steps=self.num_training_steps,
         )
         return [optimizer], [lr_scheduler]
-    
+
     def forward(self, batch):
         """
         Forward pass to compute training loss.
         """
-        ground_truth = batch[self.label_key].permute(0, 2, 1) # channel first
-        pc_action = batch["pc_action"].permute(0, 2, 1) # channel first
-        pc_anchor = batch["pc_anchor"].permute(0, 2, 1) # channel first
+        ground_truth = batch[self.label_key].permute(0, 2, 1)  # channel first
+        pc_action = batch["pc_action"].permute(0, 2, 1)  # channel first
+        pc_anchor = batch["pc_anchor"].permute(0, 2, 1)  # channel first
 
-        model_kwargs = dict(
-            x=pc_action, y=pc_anchor
-        )
+        model_kwargs = dict(x=pc_action, y=pc_anchor)
         pred = self.network(**model_kwargs)
         loss = F.mse_loss(pred, ground_truth)
         return None, loss
 
     @torch.no_grad()
-    def predict(self, batch, num_samples, unflatten=False, progress=False, full_prediction=True):
+    def predict(
+        self, batch, num_samples, unflatten=False, progress=False, full_prediction=True
+    ):
         pc_action = batch["pc_action"].to(self.device)
         pc_anchor = batch["pc_anchor"].to(self.device)
         # reshaping
@@ -402,7 +396,6 @@ class RegressionModule(L.LightningModule):
 
         pred = pred.permute(0, 2, 1)
         pred = expand_pcd(pred, num_samples)
-        
 
         if not full_prediction:
             return {self.prediction_type: {"pred": pred}}
@@ -462,7 +455,9 @@ class RegressionModule(L.LightningModule):
         pred = pred_dict[self.prediction_type]["pred"]
 
         # computing error metrics
-        rmse = flow_rmse(pred, ground_truth, mask=True, seg=seg).reshape(bs, num_samples)
+        rmse = flow_rmse(pred, ground_truth, mask=True, seg=seg).reshape(
+            bs, num_samples
+        )
         pred = pred.reshape(bs, num_samples, -1, 3)
 
         # computing winner-take-all predictions
@@ -478,7 +473,7 @@ class RegressionModule(L.LightningModule):
 
     def log_viz_to_wandb(self, batch, pred_wta_dict, tag):
         """
-        Log visualizations to wandb. Since this is a regression module, no need to 
+        Log visualizations to wandb. Since this is a regression module, no need to
         log WTA visualizations.
 
         Args:
@@ -512,7 +507,7 @@ class RegressionModule(L.LightningModule):
 
     def training_step(self, batch):
         """
-        Training step for the module. Logs training metrics and visualizations to wandb. Since this 
+        Training step for the module. Logs training metrics and visualizations to wandb. Since this
         is a regression module, we sample only 1 prediction - no need to log WTA metrics.
         """
         self.train()
@@ -532,7 +527,7 @@ class RegressionModule(L.LightningModule):
         )
 
         # additional logging
-        if do_additional_logging:
+        if do_additional_logging and False:
             # winner-take-all predictions
             pred_wta_dict = self.predict_wta(batch, num_samples=1)
 
@@ -556,15 +551,15 @@ class RegressionModule(L.LightningModule):
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         """
-        Validation step for the module. Logs validation metrics and visualizations to wandb. Since this 
-        is a regression module, we sample only 1 prediction - still logging WTA metrics for checkpoint 
+        Validation step for the module. Logs validation metrics and visualizations to wandb. Since this
+        is a regression module, we sample only 1 prediction - still logging WTA metrics for checkpoint
         callback.
         """
         self.eval()
         with torch.no_grad():
             # winner-take-all predictions
             pred_wta_dict = self.predict_wta(batch, 1)
-        
+
         ####################################################
         # logging validation wta metrics
         ####################################################
@@ -584,8 +579,8 @@ class RegressionModule(L.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         """
-        Prediction step for model evaluation. Computes winner-take-all metrics. Since this 
-        is a regression module, we sample only 1 prediction - still return WTA metrics 
+        Prediction step for model evaluation. Computes winner-take-all metrics. Since this
+        is a regression module, we sample only 1 prediction - still return WTA metrics
         for compatibility with evaluation scripts.
         """
         # winner-take-all predictions
