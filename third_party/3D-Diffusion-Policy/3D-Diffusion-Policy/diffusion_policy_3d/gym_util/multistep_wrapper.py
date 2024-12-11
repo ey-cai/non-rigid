@@ -109,8 +109,8 @@ class MultiStepWrapper(gym.Wrapper):
             reward_agg_method='max'
         ):
         super().__init__(env)
-        self._action_space = repeated_space(env.action_space, n_action_steps)
-        self._observation_space = repeated_space(env.observation_space, n_obs_steps)
+        # self._action_space = repeated_space(env.action_space, n_action_steps)
+        # self._observation_space = repeated_space(env.observation_space, n_obs_steps)
         self.max_episode_steps = max_episode_steps
         self.n_obs_steps = n_obs_steps
         self.n_action_steps = n_action_steps
@@ -133,6 +133,19 @@ class MultiStepWrapper(gym.Wrapper):
 
         obs = self._get_obs(self.n_obs_steps)
         return obs
+    
+    def reset_to(self, initial_state):
+        """Resets the environment using kwargs."""
+        obs = self.env.reset_to(initial_state)
+        obs['agent_pos'] = np.hstack([obs['robot0_eef_pos'], obs['robot0_eef_quat'], obs['robot0_eef_vel_lin'], obs['robot0_gripper_qpos'], obs['robot0_gripper_qvel']])
+
+        self.obs = deque([obs], maxlen=self.n_obs_steps+1)
+        self.reward = list()
+        self.done = list()
+        self.info = defaultdict(lambda : deque(maxlen=self.n_obs_steps+1))
+
+        obs = self._get_obs(self.n_obs_steps)
+        return obs
 
     def step(self, action):
         """
@@ -143,6 +156,7 @@ class MultiStepWrapper(gym.Wrapper):
                 # termination
                 break
             observation, reward, done, info = super().step(act)
+            observation['agent_pos'] = np.hstack([observation['robot0_eef_pos'], observation['robot0_eef_quat'], observation['robot0_eef_vel_lin'], observation['robot0_gripper_qpos'], observation['robot0_gripper_qvel']])
 
             self.obs.append(observation)
             self.reward.append(reward)
@@ -164,18 +178,29 @@ class MultiStepWrapper(gym.Wrapper):
         Output (n_steps,) + obs_shape
         """
         assert(len(self.obs) > 0)
-        if isinstance(self.observation_space, spaces.Box):
-            return stack_last_n_obs(self.obs, n_steps)
-        elif isinstance(self.observation_space, spaces.Dict):
+        if isinstance(self.obs[0], dict):
             result = dict()
-            for key in self.observation_space.keys():
+            for key in self.obs[0].keys():
                 result[key] = stack_last_n_obs(
                     [obs[key] for obs in self.obs],
                     n_steps
                 )
             return result
         else:
-            raise RuntimeError('Unsupported space type')
+            return stack_last_n_obs(self.obs, n_steps)
+
+        # if isinstance(self.observation_space, spaces.Box):
+        #     return stack_last_n_obs(self.obs, n_steps)
+        # elif isinstance(self.observation_space, spaces.Dict):
+        #     result = dict()
+        #     for key in self.observation_space.keys():
+        #         result[key] = stack_last_n_obs(
+        #             [obs[key] for obs in self.obs],
+        #             n_steps
+        #         )
+        #     return result
+        # else:
+        #     raise RuntimeError('Unsupported space type')
 
     def _add_info(self, info):
         for key, value in info.items():

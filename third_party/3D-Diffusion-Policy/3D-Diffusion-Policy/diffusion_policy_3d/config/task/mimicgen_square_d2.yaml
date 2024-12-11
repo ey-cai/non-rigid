@@ -1,0 +1,45 @@
+name: mimicgen_square_d2
+
+task_name: square_d2
+
+mg_config: '/tmp/core_configs/demo_src_square_task_D2.json'
+
+shape_meta: &shape_meta
+  obs:
+    point_cloud:
+      shape: [1250, 3]
+      type: point_cloud
+    agent_pos:
+      shape: [14]
+      type: low_dim
+  action:
+    shape: [7]
+
+env_runner:
+  _target_: diffusion_policy_3d.env_runner.mimicgen_runner.MimicGenRunner
+  n_episodes: 1 # 20
+  # max_steps: 50
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  task_name: proccloth
+  viz: False
+  control_type: position
+  tax3d_pred: False
+
+inference:
+  seed: 1
+  split: train
+
+dataset:
+  _target_: diffusion_policy_3d.dataset.mimicgen_dataset.MimicGenDataset
+  root_dir: /tmp/core_datasets/square_agentview/demo_src_square_task_D2 
+
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  # val_ratio: 0.02
+  val_ratio: 0.0
+  max_train_episodes: 90 # TODO: may need to modify this
+  random_augment: True
