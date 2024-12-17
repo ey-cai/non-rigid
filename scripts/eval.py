@@ -83,6 +83,8 @@ def main(cfg):
         raise ValueError(f"Unknown hole type: {cfg.dataset.hole}.")
     cfg.inference.batch_size = bs
     cfg.inference.val_batch_size = bs
+    cfg.dataset.sample_size_action = -1
+    # cfg.dataset.sample_size_anchor = -1
 
     ######################################################################
     # Create the datamodule. This is just to initialize the datasets - we are

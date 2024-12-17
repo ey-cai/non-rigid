@@ -78,9 +78,10 @@ class Tax3dProcClothEnv(Tax3dEnv):
         preset_override_util(args, DEFORM_INFO[deform_obj])
 
         # Load deformable texture.
-        deform_texture_path = os.path.join(
-            args.data_path, self.get_texture_path(args.deform_texture_file)
-        )
+        # deform_texture_path = os.path.join(
+        #     args.data_path, self.get_texture_path(args.deform_texture_file)
+        # )
+        deform_texture_path = deform_params['texture_path']
 
         # Load the deformable object.
         deform_position = args.deform_init_pos
@@ -99,6 +100,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
         scene_info_copy = apply_rigid_params(self.scene_name, scene_info_copy, self.rigid_params)
         # TODO: apply_rigid_params is obsolete now that there are task-specific classes
         # should replace later, and move code into here
+        # TODO: currently not saving information about rigid object textures
         rigid_ids = []
         for name, kwargs in scene_info_copy['entities'].items():
             # Load rigid texture.

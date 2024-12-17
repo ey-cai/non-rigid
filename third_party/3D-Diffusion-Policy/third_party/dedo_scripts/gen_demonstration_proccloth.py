@@ -85,7 +85,8 @@ if __name__ == '__main__':
         f'cloth={cloth_geometry}-{cloth_pose} ' + \
         f'anchor={anchor_geometry}-{anchor_pose} ' + \
         f'hole={cloth_hole}{tag} ' + \
-        f'robot={use_robot_env}'
+        f'robot={use_robot_env} ' + \
+        'debug'
     )
 
     # creating directories
@@ -244,6 +245,8 @@ if __name__ == '__main__':
                     'rigid_transform': rigid_transform,
                     'deform_params': deform_params,
                     'rigid_params': rigid_params,
+                    # 'deform_texture_path': deform_params.get('texture_path', None),
+                    # 'rigid_texture_path': rigid_params.get('texture_path', None),
                 }
 
                 # episode data
@@ -273,12 +276,6 @@ if __name__ == '__main__':
                         # pad
                         pad = np.zeros((action_num_points - cloth_size, 3))
                         obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
-
-                    # if action_num_points == 625 and random_cloth_geometry:
-                    #     # print('Padding action point cloud with zeroes')
-                    #     pad = np.zeros((action_num_points - obs_action_pcd.shape[0], 3))
-                    #     pad[:, :3] = obs_action_pcd[0]
-                    #     obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
 
                     if obs_anchor_pcd.shape[0] > anchor_num_points:
                         obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)

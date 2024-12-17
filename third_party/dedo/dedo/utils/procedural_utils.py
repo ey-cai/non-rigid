@@ -29,7 +29,6 @@ def gen_procedural_hang_cloth(args, preset_obj_name, deform_info_dict, deform_pa
     :param deform_info_dict:
     :return:
     '''
-    # TODO: deform_params should be empty dict instead of None
     # overriding deform params if given
     if 'node_density' in deform_params:
         node_density = deform_params['node_density']
@@ -71,36 +70,13 @@ def gen_procedural_hang_cloth(args, preset_obj_name, deform_info_dict, deform_pa
         holes = try_gen_holes(node_density, num_holes, constraints)
         deform_params['holes'] = holes
     
+    # randomly pick a texture path if not specified - allows for visual consistency
+    if 'texture_path' not in deform_params:
+        cloth_texture_dir = os.path.dirname(args.deform_texture_file)
+        cloth_texture_dir = os.path.join(args.data_path, cloth_texture_dir)
+        randfile = np.random.choice(list(os.listdir(cloth_texture_dir)))
+        deform_params['texture_path'] = os.path.join(cloth_texture_dir, randfile)
 
-    # # if cloth geometry not given, randomize it
-    # if deform_params is None:
-    #     # num_holes = args.num_holes
-    #     # node_density = args.node_density
-    #     # cloth dimensions
-    #     width_range = [0.5, 2.0]
-    #     height_range = [0.5, 2.0]
-    #     w = np.random.uniform(*width_range) / 2
-    #     h = np.random.uniform(*height_range) / 2
-
-    #     # hole generation
-    #     constraints = {}
-    #     constraints['x_range'] = (2, args.node_density - 2)
-    #     constraints['y_range'] = (2, args.node_density - 2)
-    #     constraints['width_range'] = (1, int(round(args.node_density * 0.3)))
-    #     constraints['height_range'] = (1, int(round(args.node_density * 0.3)))
-    #     deform_params = {
-    #         'num_holes': args.num_holes,
-    #         'node_density': args.node_density,
-    #         'w': np.random.uniform(*width_range) / 2,
-    #         'h': np.random.uniform(*height_range) / 2,
-    #         'holes': try_gen_holes(args.node_density, args.num_holes, constraints)
-    #     }
-
-    # extracting cloth params
-    # node_density = deform_params['node_density']
-    # w = deform_params['w']
-    # h = deform_params['h']
-    # holes = deform_params['holes']
 
     # cloth save path
     rand_id = np.random.uniform(1e7)
