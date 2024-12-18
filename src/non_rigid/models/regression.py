@@ -134,7 +134,7 @@ class LinearRegressionTrainingModule(L.LightningModule):
         )
 
         # Additional logging
-        if do_additional_logging and False:
+        if do_additional_logging:
             pred_dict = self.predict(batch)
             pred_action = pred_dict["pred_action"]
             cos_sim = pred_dict["cos_sim"]
@@ -527,7 +527,7 @@ class RegressionModule(L.LightningModule):
         )
 
         # additional logging
-        if do_additional_logging and False:
+        if do_additional_logging:
             # winner-take-all predictions
             pred_wta_dict = self.predict_wta(batch, num_samples=1)
 
