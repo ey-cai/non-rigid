@@ -117,7 +117,7 @@ from PointTransformerV3.model import Point, PointTransformerV3
 
 from non_rigid.models.dit.models import PTv3_xs
 
-tformer = PointTransformerV3(enable_flash=False, in_channels=3)
+tformer = PointTransformerV3(enable_flash=True, in_channels=3)
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
@@ -127,7 +127,7 @@ class PTv3RegressionModule(L.LightningModule):
     def __init__(self):
         super().__init__()
         # self.model = PointTransformerV3(
-        #     enable_flash=False,
+        #     enable_flash=True,
         #     in_channels=3,
         #     # enc_num_head=(2, 4, 8, 16, 32),
         #     # dec_num_head=(4, 4, 8, 16),
@@ -226,7 +226,7 @@ class PTv3RegressionModule(L.LightningModule):
 from non_rigid.models.regression import RegressionModule, RegressionNetwork
 from non_rigid.models.tax3d import CrossDisplacementModule, DiffusionTransformerNetwork
 
-NUM_TRAINING_STEPS = 100000
+NUM_TRAINING_STEPS = 5000
 REGRESSION = False
 
 if REGRESSION:
@@ -322,7 +322,7 @@ else:
 import itertools
 
 # %%
-from non_rigid.models.diptv3 import DiPTv3, DiPTv3Adapter
+from non_rigid.models.diptv3 import DiPTv3_Small, DiPTv3Adapter
 
 # %%
 # Import default_collate from torch
@@ -343,7 +343,7 @@ class IterableDatasetWrapper(torch.utils.data.IterableDataset):
 # Example usage
 # repeat_count = 1000
 # batch_size = 6
-repeat_count = 1000
+repeat_count = 10000
 batch_size = 4
 
 # Create an iterable dataset with a fixed length
@@ -383,6 +383,7 @@ dataloader = DataLoader(
     batch_size=batch_size,
     shuffle=True,
     drop_last=True,
+    num_workers=16,
 )
 # dataloader = DataLoader(itertools.islice(itertools.cycle(dataset), 1000), batch_size=16, shuffle=True)
 # dataloader = DataLoader(wrapped_dataset, batch_size=batch_size, shuffle=False, drop_last=True)
@@ -402,9 +403,9 @@ batch["flow"].shape
 from non_rigid.models.tax3d import CrossDisplacementModule
 
 adapter = DiPTv3Adapter(
-    DiPTv3(
+    DiPTv3_Small(
         in_channels=8,  # ONLY if we're adding 1-hot.
-        enable_flash=False,
+        enable_flash=True,
         drop_path=0.0,
     )
 ).cuda()
@@ -452,7 +453,7 @@ model = CrossDisplacementModule(
             "prediction_type": "flow",
             "model": model_cfg,
             "training": {
-                "lr": 1e-4,
+                "lr": 1e-3,
                 "weight_decay": 1e-5,
                 "num_training_steps": NUM_TRAINING_STEPS,
                 "lr_warmup_steps": 0,
@@ -867,7 +868,7 @@ device = "cuda:0"
 # %%
 from PointTransformerV3.model import Point, PointTransformerV3
 
-tformer = PointTransformerV3(enable_flash=False, in_channels=3)
+tformer = PointTransformerV3(enable_flash=True, in_channels=3)
 
 # %%
 tformer.cuda()

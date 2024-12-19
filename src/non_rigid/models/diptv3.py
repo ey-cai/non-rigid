@@ -673,3 +673,18 @@ class DiPTv3(PointModule):
         if not self.cls_mode:
             point = self.dec(point)
         return point
+
+
+### Smaller version of DiPTv3.
+DiPTv3_Small = partial(
+    DiPTv3,
+    stride=(2, 2),
+    enc_depths=(2, 2, 6),
+    enc_channels=(32, 64, 128),
+    enc_num_head=(2, 8, 8),
+    enc_patch_size=(1024, 1024, 1024),
+    dec_depths=(2, 2),
+    dec_channels=(64, 128),
+    dec_num_head=(4, 8),
+    dec_patch_size=(1024, 1024),
+)
