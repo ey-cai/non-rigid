@@ -16,7 +16,7 @@ dataset = DeformablePlacementDataset(
     dataset_cfg=OmegaConf.create(
         {
             "train_size": 1,
-            "scene": True,
+            "scene": False,
             "sample_size_action": 1024,
             "sample_size_anchor": 1024,
             # "sample_size_action": 0,
@@ -84,8 +84,9 @@ import torch
 # %%
 from rpad.visualize_3d.plots import segmentation_fig
 
-dataset2 = RescaleDataset(dataset, scale, mean)
-data2 = dataset2[0]
+# dataset2 = RescaleDataset(dataset, scale, mean)
+# data2 = dataset2[0]
+data2 = data
 
 fig = segmentation_fig(
     data=torch.cat(
@@ -343,7 +344,7 @@ class IterableDatasetWrapper(torch.utils.data.IterableDataset):
 # repeat_count = 1000
 # batch_size = 6
 repeat_count = 1000
-batch_size = 8
+batch_size = 4
 
 # Create an iterable dataset with a fixed length
 wrapped_dataset = IterableDatasetWrapper(
@@ -371,14 +372,20 @@ class RepeatDataset(torch.utils.data.Dataset):
 # Dataloader on top of dataset[0]
 from torch.utils.data import DataLoader
 
+# dataloader = DataLoader(
+#     RescaleDataset(RepeatDataset(dataset, repeat_count), scale, mean),
+#     batch_size=batch_size,
+#     shuffle=True,
+#     drop_last=True,
+# )
 dataloader = DataLoader(
-    RescaleDataset(RepeatDataset(dataset, repeat_count), scale, mean),
+    RepeatDataset(dataset, repeat_count),
     batch_size=batch_size,
     shuffle=True,
     drop_last=True,
 )
 # dataloader = DataLoader(itertools.islice(itertools.cycle(dataset), 1000), batch_size=16, shuffle=True)
-# dataloader = DataLoader(wrapped_dataset, batch_size=batch_size, shuffle=False)
+# dataloader = DataLoader(wrapped_dataset, batch_size=batch_size, shuffle=False, drop_last=True)
 batch = next(iter(dataloader))
 
 # device = "cuda"
@@ -392,11 +399,13 @@ batch = next(iter(dataloader))
 batch["flow"].shape
 
 # %%
-from non_rigid.models.tax3d import SceneDisplacementModule
+from non_rigid.models.tax3d import CrossDisplacementModule
 
 adapter = DiPTv3Adapter(
     DiPTv3(
+        in_channels=8,  # ONLY if we're adding 1-hot.
         enable_flash=False,
+        drop_path=0.0,
     )
 ).cuda()
 
@@ -409,6 +418,7 @@ preds = adapter(
     .float()
     .cuda(),
     x0=batch["pc_action"].permute(0, 2, 1).cuda(),
+    y=batch["pc_anchor"].permute(0, 2, 1).cuda(),
 )
 
 
@@ -434,7 +444,7 @@ model_cfg = OmegaConf.create(
     }
 )
 network = adapter
-model = SceneDisplacementModule(
+model = CrossDisplacementModule(
     network,
     cfg=OmegaConf.create(
         {
@@ -451,7 +461,7 @@ model = SceneDisplacementModule(
                 "val_batch_size": batch_size,
                 "sample_size": None,
                 "sample_size_anchor": None,
-                "num_wta_trials": 10,
+                "num_wta_trials": 4,
             },
         }
     ),
@@ -475,6 +485,13 @@ torch.cuda.empty_cache()
 # %%
 # Using the trainer...
 
+import os
+
+os.environ["WANDB_MODE"] = "disabled"
+import wandb
+
+wandb.init()
+
 import time
 
 import lightning as L
@@ -492,14 +509,18 @@ trainer = L.Trainer(
     logger=False,
     check_val_every_n_epoch=0,
     # log_every_n_steps=2, # TODO: MOVE THIS TO TRAINING CFG
-    log_every_n_steps=1,
+    log_every_n_steps=100,
     gradient_clip_val=1.0,
     callbacks=[
         ModelCheckpoint(dirpath=f"./ckpts/{time_now_str}", every_n_train_steps=100),
     ],
 )
 
+print(f"saving to ./ckpts/{time_now_str}")
+
 trainer.fit(model, dataloader)
+
+exit()
 
 
 # %%
@@ -587,10 +608,10 @@ model.eval()
 import tree
 
 # batch = tree.map_structure(lambda x: x[0] if isinstance(x, torch.Tensor) else x, batch)
-# dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-dataloader = DataLoader(
-    RescaleDataset(dataset, scale, mean), batch_size=1, shuffle=False
-)
+dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+# dataloader = DataLoader(
+#     RescaleDataset(dataset, scale, mean), batch_size=1, shuffle=False
+# )
 batch = next(iter(dataloader))
 
 with torch.no_grad():

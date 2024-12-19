@@ -108,6 +108,9 @@ def create_model(cfg):
     elif cfg.model.name == "df_diptv3":
         network_fn = lambda model_cfg: DiPTv3Adapter(DiPTv3(enable_flash=False))
         module_fn = SceneDisplacementModule
+    elif cfg.model.name == "df_diptv3_cross":
+        network_fn = lambda model_cfg: DiPTv3Adapter(DiPTv3(enable_flash=False))
+        module_fn = CrossDisplacementModule
     else:
         raise ValueError(f"Invalid model name: {cfg.model.name}")
 

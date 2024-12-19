@@ -362,7 +362,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         # determine if additional logging should be done
         do_additional_logging = (
             self.global_step % self.additional_train_logging_period == 0
-        )
+        ) and not (self.logger is None)
 
         # additional logging
         if do_additional_logging:

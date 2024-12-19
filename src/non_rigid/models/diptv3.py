@@ -1,5 +1,6 @@
 import math
 from functools import partial
+from typing import Optional
 
 import spconv
 import spconv.pytorch as spconv
@@ -121,6 +122,7 @@ class DiPTv3Adapter(nn.Module):
         x: torch.Tensor,
         t: torch.Tensor,
         x0: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Denoise the input (a point cloud).
@@ -132,26 +134,56 @@ class DiPTv3Adapter(nn.Module):
 
         x = x.permute(0, 2, 1)  # type: ignore
         x0 = x0.permute(0, 2, 1)  # type: ignore
+        if y is not None:
+            y = y.permute(0, 2, 1)
         B, N, C_in = x.shape
         B0, N0, D = x0.shape
+        B1, N1, D1 = y.shape if y is not None else (0, 0, 0)
 
         assert t.shape[0] == B
+
+        if y is not None:
+            # Concatenate y and x0 on the second-to-last dim (N)
+            x0 = torch.cat([x0, y], dim=1)
+            # Add zeros to the x tensor.
+            x = torch.cat([x, torch.zeros(B, N1, C_in, device=x.device)], dim=1)
+
+            # Create a labels tensor (one-hot encoded) for x0 and y.
+            # This is a tensor of shape (B, N0 + N1, 2).
+            labels = torch.cat(
+                [
+                    torch.zeros(B, N0, 1, device=x.device),
+                    torch.ones(B, N1, 1, device=x.device),
+                ],
+                dim=1,
+            )
+            # Make one-hot
+            labels = torch.cat([1 - labels, labels], dim=-1)
+        else:
+            labels = None
 
         # Reshape to (BxN, C), and create a batch vector with the indices.
         # Right now assuming that the batch has same number of points for each example.
         x0_flat = x0.reshape(-1, D)
         x_flat = x.reshape(-1, C_in)
+        if labels is not None:
+            labels = labels.reshape(-1, labels.shape[-1])
         batch_ixs = torch.repeat_interleave(
             torch.arange(B, device=x0.device), x0.shape[1]
         )
 
+        if y is not None:
+            cat_feat = torch.cat([x0_flat, x_flat, labels], dim=-1)
+        else:
+            cat_feat = torch.cat([x0_flat, x_flat], dim=-1)
+
         data = Point(
             coord=x0_flat,
-            feat=torch.cat([x0_flat, x_flat], dim=-1),
+            feat=cat_feat,
             batch=batch_ixs,
             grid_size=self.grid_size,  # Not sure what to do here...
             t=t,
-            N=N,
+            N=N0 + N1,
         )
         pred = self.model(data)
         C_out = pred.feat.shape[-1]
@@ -162,6 +194,8 @@ class DiPTv3Adapter(nn.Module):
 
         # Final linear layer to get the output.
         feats = self.final_layer(feats, pred.t_emb)
+
+        feats = feats[:, :N, :]
 
         # Permute back to what we expect.
         feats = feats.permute(0, 2, 1)
