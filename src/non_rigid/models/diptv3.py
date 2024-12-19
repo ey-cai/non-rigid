@@ -6,17 +6,32 @@ import spconv.pytorch as spconv
 import torch
 import torch_scatter
 from addict import Dict
-from PointTransformerV3.model import (
-    MLP,
-    DropPath,
-    Embedding,
-    PDNorm,
-    Point,
-    PointModule,
-    PointSequential,
-    SerializedAttention,
-    SerializedUnpooling,
-)
+
+try:
+    from third_party.PointTransformerV3.model import (
+        MLP,
+        DropPath,
+        Embedding,
+        PDNorm,
+        Point,
+        PointModule,
+        PointSequential,
+        SerializedAttention,
+        SerializedUnpooling,
+    )
+except ImportError:
+    from PointTransformerV3.model import (
+        MLP,
+        DropPath,
+        Embedding,
+        PDNorm,
+        Point,
+        PointModule,
+        PointSequential,
+        SerializedAttention,
+        SerializedUnpooling,
+    )
+
 from torch import nn
 
 from non_rigid.models.dit.models import TimestepEmbedder
