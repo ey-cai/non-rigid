@@ -50,10 +50,12 @@ def main(cfg):
     torch.backends.cudnn.benchmark = False
 
     # Since most of us are training on 3090s+, we can use mixed precision.
-    torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("high")
 
     # Global seed for reproducibility.
     L.seed_everything(cfg.seed)
+
+    torch.autograd.set_detect_anomaly(True)
 
     ######################################################################
     # Create the datamodule.

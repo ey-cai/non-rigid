@@ -18,7 +18,7 @@ from non_rigid.models.df_base import (
     PointPredictionInferenceModule,
     PointPredictionTrainingModule,
 )
-from non_rigid.models.diptv3 import DiPTv3, DiPTv3Adapter
+from non_rigid.models.diptv3 import DiPTv3, DiPTv3_Small, DiPTv3Adapter
 from non_rigid.models.regression import (
     LinearRegression,
     LinearRegressionInferenceModule,
@@ -106,10 +106,16 @@ def create_model(cfg):
         network_fn = RegressionNetwork
         module_fn = RegressionModule
     elif cfg.model.name == "df_diptv3":
-        network_fn = lambda model_cfg: DiPTv3Adapter(DiPTv3(enable_flash=False))
+        network_fn = lambda model_cfg: DiPTv3Adapter(DiPTv3(enable_flash=True))
         module_fn = SceneDisplacementModule
     elif cfg.model.name == "df_diptv3_cross":
-        network_fn = lambda model_cfg: DiPTv3Adapter(DiPTv3(enable_flash=False))
+        network_fn = lambda model_cfg: DiPTv3Adapter(
+            DiPTv3_Small(
+                enable_flash=False,
+                in_channels=8,  # ONLY if we're adding 1-hot.
+                drop_path=0.0,
+            )
+        )
         module_fn = CrossDisplacementModule
     else:
         raise ValueError(f"Invalid model name: {cfg.model.name}")
