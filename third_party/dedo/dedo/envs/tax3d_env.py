@@ -78,10 +78,8 @@ class Tax3dEnv(gym.Env):
         self.max_episode_len = self.args.max_episode_len
 
         # Initializing object params - these can be randomized at reset.
-        self.deform_transform = {}
-        self.deform_params = {}
-        self.rigid_transform = {}
-        self.rigid_params = {}
+        self.deform_data = {}
+        self.rigid_data = {}
 
         # Define sizes of observation and action spaces.
         self.gripper_lims = np.tile(np.concatenate(
@@ -158,12 +156,7 @@ class Tax3dEnv(gym.Env):
     def seed(self, seed):
         np.random.seed(seed)
 
-    def reset(self,
-              deform_transform = {}, rigid_transform = {},
-              deform_params = {}, rigid_params = {}):
-        
-        # TODO: sanity check on transforms?
-
+    def reset(self, deform_data = {}, rigid_data = {}):
         self.stepnum = 0
         self.rigid_pcd = None
         self.episode_reward = 0.0
@@ -173,10 +166,8 @@ class Tax3dEnv(gym.Env):
         self.target_action = None
 
         # Updating object data.
-        self.deform_transform = deform_transform
-        self.rigid_transform = rigid_transform
-        self.deform_params = deform_params
-        self.rigid_params = rigid_params
+        self.deform_data = deform_data
+        self.rigid_data = rigid_data
 
 
         if self.args.viz:  # no rendering during load
@@ -208,11 +199,6 @@ class Tax3dEnv(gym.Env):
 
         # Load the floor.
         load_floor(self.sim, plane_texture=plane_texture_path, debug=self.args.debug)
-
-        # Special case for Procedural Cloth tasks that can have two holes:
-        # reward is based on the closest hole.
-        # if 'HangProcCloth' in self.args.env:
-        #     self.goal_pos = np.vstack((self.goal_pos, self.goal_pos))
 
         self.sim.stepSimulation() # step once to get initial state
 
@@ -347,6 +333,8 @@ class Tax3dEnv(gym.Env):
             pre_release_check, pre_release_check_info = self.check_pre_release()
             info = self.make_final_steps()
             post_release_check, post_release_check_info = self.check_post_release()
+
+            breakpoint()
             # success requires both checks to pass for at least one hole
             info['is_success'] = np.any(pre_release_check * post_release_check)
             info['pre_release_check'] = pre_release_check_info

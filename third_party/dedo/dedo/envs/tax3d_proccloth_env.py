@@ -69,12 +69,15 @@ class Tax3dProcClothEnv(Tax3dEnv):
         self.args.num_holes = 1
 
     def load_objects(self, args):
+        # NOTE: this assumes there is only one deformable object
         # ----------------- LOADING DEFORMABLE OBJECT -----------------
         # Generate procedural cloth, and update deform params.
+        deform_params = self.deform_data['deform_params']
         deform_obj, deform_params = gen_procedural_hang_cloth(
-            args, 'procedural_hang_cloth', DEFORM_INFO, self.deform_params
+            args, 'procedural_hang_cloth', DEFORM_INFO, deform_params
         )
-        self.deform_params = deform_params
+        # self.deform_params = deform_params
+        self.deform_data['deform_params'] = deform_params
         preset_override_util(args, DEFORM_INFO[deform_obj])
 
         # Load deformable texture.
@@ -96,112 +99,239 @@ class Tax3dProcClothEnv(Tax3dEnv):
 
         # ----------------- LOADING RIGID OBJECT -----------------
         # Apply rigid object parameters.
-        scene_info_copy = copy.deepcopy(SCENE_INFO[self.scene_name])
-        scene_info_copy = apply_rigid_params(self.scene_name, scene_info_copy, self.rigid_params)
+        rigid_ids = []
+        goal_poses = []
+        # scene_info_copy = copy.deepcopy(SCENE_INFO[self.scene_name])
+        # scene_info_copy = apply_rigid_params(self.scene_name, scene_info_copy, self.rigid_params)
+        
+
+        # TODO: basically, get the necessary info from rigid_params instead\
+        num_rigids = len(self.rigid_data.keys())
+        # num_entities = len(scene_info_copy['entities'].keys())
+
+
+        # Load each rigid object.
+        scene_info = {}
+        for i in range(num_rigids):
+            rigid_data_i = self.rigid_data[i]
+            rigid_params_i = rigid_data_i['rigid_params']
+
+            # Apply rigid object params.
+            # TODO: NEED TO KEEP TRACK OF ALL SCENE INFO COPIES
+            scene_info_copy = copy.deepcopy(SCENE_INFO[self.scene_name])
+            if 'hanger_scale' in rigid_params_i:
+                scene_info_copy['entities']['urdf/hanger.urdf']['globalScaling'] *= rigid_params_i['hanger_scale']
+            
+            if 'tallrod_scale' in rigid_params_i:
+                scene_info_copy['entities']['urdf/tallrod.urdf']['globalScaling'] *= rigid_params_i['tallrod_scale']
+            
+                # Adjust hanger and goal position based on tallrod scale.
+                scene_info_copy['entities']['urdf/hanger.urdf']['basePosition'][2] *= rigid_params_i['tallrod_scale']
+                scene_info_copy['goal_pos'][0][2] *= rigid_params_i['tallrod_scale']
+
+
+            # Load entities for each rigid object.
+            for name, kwargs in scene_info_copy['entities'].items():
+                # Load rigid texture.
+                rgba_color = kwargs['rgbaColor'] if 'rgbaColor' in kwargs else None
+                rigid_texture_file = None
+                if 'useTexture' in kwargs and kwargs['useTexture']:
+                    rigid_texture_file = os.path.join(
+                        args.data_path, self.get_texture_path(args.rigid_texture_file)
+                    )
+                
+                id = load_rigid_object(
+                    self.sim, os.path.join(args.data_path, name), kwargs['globalScaling'],
+                    kwargs['basePosition'], kwargs['baseOrientation'],
+                    kwargs.get('mass', 0.0), rigid_texture_file, rgba_color,
+                )
+                rigid_ids.append(id)
+            
+            # TODO: SETTING UP THE GOAL POSITION
+            # what is the current shape of goal?
+            # num_holes * (goal shape)
+            # num_rigids  x (goal shape)
+            # NOTE: NO LONGER STACKING GOAL POSES FOR MULTIPLE LOOPS - will have to manually iterate for this
+            goal_poses.append(scene_info_copy['goal_pos'][0])
+
+            # update scene info
+            scene_info[i] = scene_info_copy
+
+    
+
+
+
+        # ----- OLD RIGID LOADING CODE -----    
         # TODO: apply_rigid_params is obsolete now that there are task-specific classes
         # should replace later, and move code into here
         # TODO: currently not saving information about rigid object textures
-        rigid_ids = []
-        for name, kwargs in scene_info_copy['entities'].items():
-            # Load rigid texture.
-            rgba_color = kwargs['rgbaColor'] if 'rgbaColor' in kwargs else None
-            rigid_texture_file = None
-            if 'useTexture' in kwargs and kwargs['useTexture']:
-                rigid_texture_file = os.path.join(
-                    args.data_path, self.get_texture_path(args.rigid_texture_file)
-                )
+        # rigid_ids = []
+        # for name, kwargs in scene_info_copy['entities'].items():
+        #     # Load rigid texture.
+        #     rgba_color = kwargs['rgbaColor'] if 'rgbaColor' in kwargs else None
+        #     rigid_texture_file = None
+        #     if 'useTexture' in kwargs and kwargs['useTexture']:
+        #         rigid_texture_file = os.path.join(
+        #             args.data_path, self.get_texture_path(args.rigid_texture_file)
+        #         )
 
-            # Load the rigid object.
-            rigid_position = kwargs['basePosition']
-            rigid_orientation = kwargs['baseOrientation']
-            id = load_rigid_object(
-                self.sim, os.path.join(args.data_path, name), kwargs['globalScaling'],
-                # kwargs['basePosition'], kwargs['baseOrientation'],
-                rigid_position, rigid_orientation,
-                kwargs.get('mass', 0.0), rigid_texture_file, rgba_color,
-            )
-            rigid_ids.append(id)
+        #     # Load the rigid object.
+        #     rigid_position = kwargs['basePosition']
+        #     rigid_orientation = kwargs['baseOrientation']
+        #     id = load_rigid_object(
+        #         self.sim, os.path.join(args.data_path, name), kwargs['globalScaling'],
+        #         # kwargs['basePosition'], kwargs['baseOrientation'],
+        #         rigid_position, rigid_orientation,
+        #         kwargs.get('mass', 0.0), rigid_texture_file, rgba_color,
+        #     )
+        #     rigid_ids.append(id)
         
         # ----------------- SETTING UP GOAL POSITION -----------------
         # Mark the goal and store intermediate info for reward computations.
-        goal_poses = scene_info_copy['goal_pos']
-        goal_poses = np.vstack([goal_poses, goal_poses])
-        # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
-        #     goal_poses = [
-        #         R.from_euler('xyz', self.rigid_transform['rotation']).apply(goal_pos) + self.rigid_transform['translation']
-        #         for goal_pos in goal_poses
-        #     ]
-        # ----------------- COMPUTING GOAL POSITIONS PRE-TRANSFORMATION -----------------
+        # goal_poses = scene_info_copy['goal_pos']
+        # goal_poses = np.vstack([goal_poses, goal_poses])
+
+
+
+        # ----------------- COMPUTING GOAL ANCHOR POSITIONS (PRE-TRANSFORMATION) -----------------
+        # before, was num_holes x num_anchors x 1 x 3
+        # now, should be num_rigids x num_holes x num_anchors x 3
         _, vertex_positions = get_mesh_data(self.sim, deform_id)
         vertex_positions = np.array(vertex_positions)
-        # NOTE: the order here is dependent on DEFORM_INFO - arbitrary object transformations could result in cloth-flipping
-        # NOTE: this also means we should be careful about which gripper we attach to which anchor
+        # TODO: if we "flip" the rotation when moving anchor to the other side, this should still work
         anchor_vertices = DEFORM_INFO[deform_obj]['deform_anchor_vertices']
         goal_anchor_positions = []
+
+        # iterate through rigids, then iterate through holes
+        for rigid in range(num_rigids):
+            rigid_goal_anchor_positions = []
+            for hole in range(deform_params['num_holes']):
+                hole_vertices = self.args.deform_true_loop_vertices[hole]
+                centroid_points = vertex_positions[hole_vertices]
+                centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
+                centroid = centroid_points.mean(axis=0)
+
+                flow = goal_poses[rigid] - centroid
+
+                # compute the goal positions for each anchor
+                hole_goal_anchor_positions = []
+                for anchor in range(self.num_anchors):
+                    anchor_pos = vertex_positions[anchor_vertices[anchor]]
+                    # small offset to make sure the gripper goes past the hanger
+                    goal_anchor_pos = anchor_pos + flow + np.array([0, -1.5, 0.5])
+                    hole_goal_anchor_positions.append(goal_anchor_pos)
+                rigid_goal_anchor_positions.append(hole_goal_anchor_positions)
+            goal_anchor_positions.append(np.asarray(rigid_goal_anchor_positions))
+
+
+
+        # # TODO: need to do this for each goal now
+        # # ----------------- COMPUTING GOAL POSITIONS (PRE-TRANSFORMATION) - OLD -----------------
+        # _, vertex_positions = get_mesh_data(self.sim, deform_id)
+        # vertex_positions = np.array(vertex_positions)
+        # # NOTE: the order here is dependent on DEFORM_INFO - arbitrary object transformations could result in cloth-flipping
+        # # NOTE: this also means we should be careful about which gripper we attach to which anchor
+        # anchor_vertices = DEFORM_INFO[deform_obj]['deform_anchor_vertices']
+        # goal_anchor_positions = []
         
-        for hole_id in range(self.deform_params["num_holes"]):
-            hole_vertices = self.args.deform_true_loop_vertices[hole_id]
-            centroid_points = vertex_positions[hole_vertices]
-            centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
-            centroid = centroid_points.mean(axis=0)
+        # for hole_id in range(deform_params["num_holes"]):
+        #     hole_vertices = self.args.deform_true_loop_vertices[hole_id]
+        #     centroid_points = vertex_positions[hole_vertices]
+        #     centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
+        #     centroid = centroid_points.mean(axis=0)
 
-            flow = goal_poses[hole_id] - centroid
+        #     flow = goal_poses[hole_id] - centroid
 
-            # compute the goal positions for each anchor
-            hole_goal_anchor_positions = []
-            for anchor in range(self.num_anchors):
-                anchor_pos = vertex_positions[anchor_vertices[anchor]]
-                # small offset to make sure the gripper goes past the hanger
-                goal_anchor_pos = anchor_pos + flow + np.array([0, -1.5, 0.5])
-                hole_goal_anchor_positions.append(goal_anchor_pos)
-            goal_anchor_positions.append(hole_goal_anchor_positions)
+        #     # compute the goal positions for each anchor
+        #     hole_goal_anchor_positions = []
+        #     for anchor in range(self.num_anchors):
+        #         anchor_pos = vertex_positions[anchor_vertices[anchor]]
+        #         # small offset to make sure the gripper goes past the hanger
+        #         goal_anchor_pos = anchor_pos + flow + np.array([0, -1.5, 0.5])
+        #         hole_goal_anchor_positions.append(goal_anchor_pos)
+        #     goal_anchor_positions.append(hole_goal_anchor_positions)
 
+        # breakpoint()
 
         # ----------------- TRANSFORMING ALL OBJECTS AND GOALS -----------------
         # Transform the deformable object, if necessary.
-        if 'rotation' in self.deform_transform and 'translation' in self.deform_transform:
+        deform_transform = self.deform_data['deform_transform']
+        if 'rotation' in deform_transform and 'translation' in deform_transform:
             # Apply the transformation to the deformable object.
-            deform_rotation = R.from_euler('xyz', self.deform_transform['rotation'])
-            deform_translation = self.deform_transform['translation']
+            deform_rotation = R.from_euler('xyz', deform_transform['rotation'])
+            deform_translation = deform_transform['translation']
             # deform_position = deform_rotation.apply(deform_position) + deform_translation
             deform_position = deform_position + deform_translation
             deform_orientation = (deform_rotation * R.from_euler('xyz', deform_orientation)).as_euler('xyz')
             self.sim.resetBasePositionAndOrientation(deform_id, deform_position, pybullet.getQuaternionFromEuler(deform_orientation))
-        elif self.deform_transform:
+        elif deform_transform:
             raise ValueError('Deformable transformation must specify rotation and translation.')
         
         # Transform the rigid objects and goals, if necessary.
-        if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
-            rigid_rotation = R.from_euler('xyz', self.rigid_transform['rotation'])
-            rigid_translation = self.rigid_transform['translation']
-            # Apply the transformation to the rigid objects.
-            for i, (name, kwargs) in enumerate(scene_info_copy['entities'].items()):
-                rigid_position = kwargs['basePosition']
-                rigid_orientation = kwargs['baseOrientation']
-                # rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
-                rigid_position = rigid_position + rigid_translation
-                rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
-                self.sim.resetBasePositionAndOrientation(rigid_ids[i], rigid_position, pybullet.getQuaternionFromEuler(rigid_orientation))
+        for i in range(num_rigids):
+            rigid_data_i = self.rigid_data[i]
+            rigid_transform_i = rigid_data_i['rigid_transform']
 
-            # Apply the transformation to the goal data.
-            goal_poses = [
-                rigid_rotation.apply(goal_pos) + rigid_translation
-                for goal_pos in goal_poses
-            ]
-            goal_anchor_positions = [
-                [rigid_rotation.apply(anchor_goal) + rigid_translation for anchor_goal in hole_goal_anchor_positions]
-                for hole_goal_anchor_positions in goal_anchor_positions
-            ]
+            if 'rotation' in rigid_transform_i and 'translation' in rigid_transform_i:
+                rigid_rotation = R.from_euler('xyz', rigid_transform_i['rotation'])
+                rigid_translation = rigid_transform_i['translation']
+
+                # Apply the transformation to the rigid objects.
+                # scene_info_copy = copy.deepcopy(SCENE_INFO[self.scene_name])
+                scene_info_copy = scene_info[i]
+                num_entities = len(scene_info_copy['entities'].keys())
+                for j, (name, kwargs) in enumerate(scene_info_copy['entities'].items()):
+                    rigid_position = kwargs['basePosition']
+                    rigid_orientation = kwargs['baseOrientation']
+                    rigid_position = rigid_position + rigid_translation
+                    rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
+                    self.sim.resetBasePositionAndOrientation(
+                        rigid_ids[i * num_entities + j], rigid_position, pybullet.getQuaternionFromEuler(rigid_orientation)
+                    )
+                
+                # Apply the transformation to the goal data.
+                # TODO: is this bugged? rigid is doing rotation -> translation, but this is flipped?
+                goal_poses_i = goal_poses[i]
+                goal_anchor_positions_i = goal_anchor_positions[i]
+                goal_poses[i] = rigid_rotation.apply(goal_poses_i) + rigid_translation
+                goal_anchor_positions[i] = np.asarray([
+                    [rigid_rotation.apply(anchor_goal) + rigid_translation for anchor_goal in hole_goal_anchor_positions]
+                    for hole_goal_anchor_positions in goal_anchor_positions_i
+                ])
+
+        # # --- OLD RIGID AND GOAL TRANSFORMATION CODE
+        # # Transform the rigid objects and goals, if necessary.
+        # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
+        #     rigid_rotation = R.from_euler('xyz', self.rigid_transform['rotation'])
+        #     rigid_translation = self.rigid_transform['translation']
+        #     # Apply the transformation to the rigid objects.
+        #     for i, (name, kwargs) in enumerate(scene_info_copy['entities'].items()):
+        #         rigid_position = kwargs['basePosition']
+        #         rigid_orientation = kwargs['baseOrientation']
+        #         # rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
+        #         rigid_position = rigid_position + rigid_translation
+        #         rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
+        #         self.sim.resetBasePositionAndOrientation(rigid_ids[i], rigid_position, pybullet.getQuaternionFromEuler(rigid_orientation))
+
+        #     # Apply the transformation to the goal data.
+        #     goal_poses = [
+        #         rigid_rotation.apply(goal_pos) + rigid_translation
+        #         for goal_pos in goal_poses
+        #     ]
+        #     goal_anchor_positions = [
+        #         [rigid_rotation.apply(anchor_goal) + rigid_translation for anchor_goal in hole_goal_anchor_positions]
+        #         for hole_goal_anchor_positions in goal_anchor_positions
+        #     ]
         
         return {
             'deform_id': deform_id,
             'deform_obj': deform_obj,
             'rigid_ids': rigid_ids,
             'goal_poses': np.array(goal_poses),
-            'goal_anchor_positions': goal_anchor_positions,
+            'goal_anchor_positions': np.array(goal_anchor_positions),
         }
 
-
+    # TODO: this signature is outdated (should include rigid_id as well) - but low priority
     def pseudo_expert_action(self, hole_id):
         """
         Pseudo-expert action for demonstration generation. This is basic position control using the distance 
@@ -315,11 +445,33 @@ class Tax3dProcClothEnv(Tax3dEnv):
     def check_pre_release(self):
         # centroid check
         _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
-        centroid_checks = []
-        centroid_dists = []
-        num_holes_to_track = min(
-            len(self.args.deform_true_loop_vertices), len(self.goal_pos)
-        )
+        vertex_positions = np.array(vertex_positions)
+
+        # new output is going to be num_rigids x num_holes x 1
+        num_rigids = len(self.goal_pos)
+        num_holes = len(self.args.deform_true_loop_vertices)
+        centroid_checks = np.zeros((num_rigids, num_holes), dtype=bool)
+        centroid_dists = np.zeros((num_rigids, num_holes))
+
+        for j in range(num_holes):
+            true_loop_vertices = self.args.deform_true_loop_vertices[j]
+            cent_pts = vertex_positions[true_loop_vertices]
+            cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]
+            cent_pos = cent_pts.mean(axis=0)
+            for i in range(num_rigids):
+                goal_pos = self.goal_pos[i]
+                dist = np.linalg.norm(cent_pos - goal_pos)
+                centroid_checks[i, j] = dist < 1.5
+                centroid_dists[i, j] = dist
+        
+        return centroid_checks, centroid_dists
+    
+        # centroid_checks = []
+        # centroid_dists = []
+        # num_holes_to_track = min(
+        #     len(self.args.deform_true_loop_vertices), len(self.goal_pos)
+        # )
+
         for i in range(num_holes_to_track):
             true_loop_vertices = self.args.deform_true_loop_vertices[i]
             goal_pos = self.goal_pos[i]
@@ -335,7 +487,30 @@ class Tax3dProcClothEnv(Tax3dEnv):
     def check_post_release(self):
         # polygon check
         _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
+        vertex_positions = np.array(vertex_positions)
+
+
+        # new output is going to be num_rigids x num_holes x 1
+        num_rigids = len(self.goal_pos)
+        num_holes = len(self.args.deform_true_loop_vertices)
+        polygon_checks = np.zeros((num_rigids, num_holes), dtype=bool)
+
+        for j in range(num_holes):
+            true_loop_vertices = self.args.deform_true_loop_vertices[j]
+            true_loop_vertices = order_loop_vertices(true_loop_vertices)
+            cent_pts = vertex_positions[true_loop_vertices]
+            polygon = Polygon(cent_pts[:, :2])
+            for i in range(num_rigids):
+                goal_pos = self.goal_pos[i]
+                point = Point(goal_pos[:2])
+                polygon_checks[i, j] = polygon.contains(point)
+
+        return polygon_checks, None
+
+
+
         polygon_checks = []
+        # TODO: this is going to have to change, since we acn now have multiple anchors
         num_holes_to_track = min(
             len(self.args.deform_true_loop_vertices), len(self.goal_pos)
         )

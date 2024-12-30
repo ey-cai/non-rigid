@@ -185,8 +185,8 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
         # for now, don't worry about n_slack
         self.robot.move_to_qpos(tgt_qpos, mode=pybullet.POSITION_CONTROL, kp=0.1, kd=1.2)
 
-    def pseudo_expert_action(self, hole_id):       
-        goals = self.goal_anchor_positions[hole_id]
+    def pseudo_expert_action(self, rigid_id, hole_id):       
+        goals = self.goal_anchor_positions[rigid_id][hole_id]
         
         # get current loop centroid position
         # loop_vertices = self.args.deform_true_loop_vertices[hole_id]
@@ -232,8 +232,9 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
 
         # ------------ COMPENSATION FOR CLOTH SHAPE ------------
         # try to keep distance between grippers roughly equal to the width of the cloth
+        deform_params = self.deform_data['deform_params']
         xy_vec = anchor_positions[0][0, 0:2] - anchor_positions[1][0, 0:2]
-        cloth_width = DEFORM_INFO[self.deform_obj]["deform_scale"] * self.deform_params["w"] * 2
+        cloth_width = DEFORM_INFO[self.deform_obj]["deform_scale"] * deform_params["w"] * 2
 
         ee_xy_offset =  (cloth_width - np.linalg.norm(xy_vec)) * xy_vec / np.linalg.norm(xy_vec)
         ee_xy_offset = np.concatenate([ee_xy_offset, [0]])

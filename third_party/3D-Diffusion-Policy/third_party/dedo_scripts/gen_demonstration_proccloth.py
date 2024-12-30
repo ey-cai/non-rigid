@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument('--random_cloth_pose', action='store_true', help='randomize cloth pose')
     parser.add_argument('--random_anchor_geometry', action='store_true', help='randomize anchor geometry')
     parser.add_argument('--random_anchor_pose', action='store_true', help='randomize anchor pose')
+    parser.add_argument('--num_anchors', type=str, default='1', help='number of anchors')
     parser.add_argument('--cloth_hole', type=str, default='single', help='number of holes in cloth')
     parser.add_argument('--tag', type=str, default='', help='additional tag for dataset description')
     parser.add_argument('--robot_env', action='store_true', help='use robot environment')
@@ -59,6 +60,7 @@ if __name__ == '__main__':
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
     random_anchor_pose = args.random_anchor_pose
+    num_anchors = args.num_anchors
     cloth_hole = args.cloth_hole
     tag = args.tag
     use_robot_env = args.robot_env
@@ -66,6 +68,9 @@ if __name__ == '__main__':
 
     if cloth_hole not in ['single', 'double']:
         raise ValueError(f'Invalid cloth hole configuration: {cloth_hole}')
+
+    # parse num_anchors
+    anchor_num_list = list(map(int, num_anchors.split(',')))
 
 
     ##############################################
@@ -86,6 +91,7 @@ if __name__ == '__main__':
         f'anchor={anchor_geometry}-{anchor_pose} ' + \
         f'hole={cloth_hole}{tag} ' + \
         f'robot={use_robot_env} ' + \
+        f'num_anchors={num_anchors} ' + \
         'debug'
     )
 
@@ -155,6 +161,7 @@ if __name__ == '__main__':
     with tqdm(total=num_episodes) as pbar:
         num_success = 0
         while num_success < num_episodes:
+            # ---------------- Deformable Data ----------------
             # randomizing cloth geometry
             if random_cloth_geometry:
                 deform_params = {
@@ -190,7 +197,13 @@ if __name__ == '__main__':
             else:
                 deform_transform = {}
             
-            # randomizing cloth geometry
+            deform_data = {
+                'deform_transform': deform_transform,
+                'deform_params': deform_params,
+            }
+            
+            # ---------------- Rigid Data ----------------
+            # randomizing anchor geometry
             if random_anchor_geometry:
                 raise NotImplementedError("Need to implement random anchor geometry")
             else:
@@ -200,18 +213,39 @@ if __name__ == '__main__':
                 }
             
             # randomizing anchor pose
+            rigid_data = {}
             if random_anchor_pose:
-                if split == 'val_ood':
-                    rigid_rotation, rigid_translation = env.random_anchor_transform_ood()
-                else:
-                    rigid_rotation, rigid_translation = env.random_anchor_transform()
-                rigid_rotation = rigid_rotation.as_euler('xyz')
-                rigid_transform = {
-                    'rotation': rigid_rotation,
-                    'translation': rigid_translation,
-                }
+                for anchor_i in range(2):
+                    if split == 'val_ood':
+                        rigid_rotation, rigid_translation = env.random_anchor_transform_ood()
+                    else:
+                        rigid_rotation, rigid_translation = env.random_anchor_transform()
+                    rigid_rotation = rigid_rotation.as_euler('xyz')
+                    rigid_transform = {
+                        'rotation': rigid_rotation,
+                        'translation': rigid_translation,
+                    }
+                    rigid_data[anchor_i] = {
+                        'rigid_transform': rigid_transform,
+                        'rigid_params': rigid_params,
+                    }
             else:
                 raise ValueError("Only generating datasets for random anchor poses")
+            
+            # initializing deform and rigid data
+            # deform_data = {
+            #     'deform_transform': deform_transform,
+            #     'deform_params': deform_params,
+            # }
+            # TODO: eventually, this should sample num anchor from a list?
+            # rigid_data = {
+            #     0: {
+            #         'rigid_transform': rigid_transform,
+            #         'rigid_params': rigid_params,
+            #     }
+            # }
+
+            breakpoint()
 
             action_pcd_arrays_sub_list = []
             anchor_pcd_arrays_sub_list = []
@@ -229,10 +263,12 @@ if __name__ == '__main__':
             for hole in range(num_holes):
                 # reset the environment
                 obs = env.reset(
-                    deform_transform=deform_transform,
-                    rigid_transform=rigid_transform,
-                    deform_params=deform_params,
-                    rigid_params=rigid_params,
+                    # deform_transform=deform_transform,
+                    # rigid_transform=rigid_transform,
+                    # deform_params=deform_params,
+                    # rigid_params=rigid_params,
+                    deform_data=deform_data,
+                    rigid_data=rigid_data,
                 )
 
                 # initializing tax3d demo
@@ -263,7 +299,7 @@ if __name__ == '__main__':
                 # rollout the policy for this hole
                 while True:
                     # get action
-                    action = env.pseudo_expert_action(hole)
+                    action = env.pseudo_expert_action(0, hole)
                     total_count_sub += 1
 
                     # downsample point clouds for demos (not tax3d demos)
