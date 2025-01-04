@@ -27,6 +27,7 @@ dependencies = [
     "omegaconf == 2.3.0",
     "pandas",
     "pybullet == 3.2.6",
+    "rpad-core @ git+https://github.com/r-pad/core.git",
     "rpad-pyg @ git+https://github.com/r-pad/pyg_libs.git",
     "rpad-visualize-3d @ git+https://github.com/r-pad/visualize_3d.git",
     "shapely == 2.0.2",
