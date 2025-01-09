@@ -137,7 +137,10 @@ class DedoEnv:
     def get_obs(self):
         obs = self.env.get_obs()
         action_pcd = obs['action_pcd']
+        action_seg = obs['action_seg']
         anchor_pcd = obs['anchor_pcd']
+        anchor_seg = obs['anchor_seg']
+        # TODO: since we can have multiple anchors, this should get a seg from the actual env
 
         if self.tax3d:
             # tax3d-specific observation; action/anchor segmentation, and full action point cloud
@@ -157,7 +160,9 @@ class DedoEnv:
             obs_dict = {
                 # 'point_cloud': point_cloud,
                 'action_pcd': action_pcd,
+                'action_seg': action_seg,
                 'anchor_pcd': anchor_pcd,
+                'anchor_seg': anchor_seg,
                 'agent_pos': obs['gripper_state'],
             }
         return obs_dict

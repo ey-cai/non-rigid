@@ -15,6 +15,7 @@ from ..utils.procedural_utils import gen_procedural_hang_cloth
 from ..utils.args import preset_override_util
 
 from scipy.spatial.transform import Rotation as R
+from scipy.spatial.distance import cdist
 
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
@@ -23,6 +24,8 @@ import copy
 
 # import "constants" from Tax3dEnv
 from .tax3d_env import Tax3dEnv, DEFORM_INFO, SCENE_INFO
+
+MIN_ANCHOR_DIST = 8.0
 
 
 def order_loop_vertices(vertices):
@@ -112,9 +115,12 @@ class Tax3dProcClothEnv(Tax3dEnv):
 
         # Load each rigid object.
         scene_info = {}
+        # NOTE: confusing variable names for now...rigid_anchor_ids maps rigid objects to rigid_ids
+        self.rigid_anchor_ids = {}
         for i in range(num_rigids):
             rigid_data_i = self.rigid_data[i]
             rigid_params_i = rigid_data_i['rigid_params']
+            self.rigid_anchor_ids[i + 1] = []
 
             # Apply rigid object params.
             # TODO: NEED TO KEEP TRACK OF ALL SCENE INFO COPIES
@@ -146,6 +152,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
                     kwargs.get('mass', 0.0), rigid_texture_file, rgba_color,
                 )
                 rigid_ids.append(id)
+                self.rigid_anchor_ids[i + 1].append(id)
             
             # TODO: SETTING UP THE GOAL POSITION
             # what is the current shape of goal?
@@ -156,42 +163,6 @@ class Tax3dProcClothEnv(Tax3dEnv):
 
             # update scene info
             scene_info[i] = scene_info_copy
-
-    
-
-
-
-        # ----- OLD RIGID LOADING CODE -----    
-        # TODO: apply_rigid_params is obsolete now that there are task-specific classes
-        # should replace later, and move code into here
-        # TODO: currently not saving information about rigid object textures
-        # rigid_ids = []
-        # for name, kwargs in scene_info_copy['entities'].items():
-        #     # Load rigid texture.
-        #     rgba_color = kwargs['rgbaColor'] if 'rgbaColor' in kwargs else None
-        #     rigid_texture_file = None
-        #     if 'useTexture' in kwargs and kwargs['useTexture']:
-        #         rigid_texture_file = os.path.join(
-        #             args.data_path, self.get_texture_path(args.rigid_texture_file)
-        #         )
-
-        #     # Load the rigid object.
-        #     rigid_position = kwargs['basePosition']
-        #     rigid_orientation = kwargs['baseOrientation']
-        #     id = load_rigid_object(
-        #         self.sim, os.path.join(args.data_path, name), kwargs['globalScaling'],
-        #         # kwargs['basePosition'], kwargs['baseOrientation'],
-        #         rigid_position, rigid_orientation,
-        #         kwargs.get('mass', 0.0), rigid_texture_file, rgba_color,
-        #     )
-        #     rigid_ids.append(id)
-        
-        # ----------------- SETTING UP GOAL POSITION -----------------
-        # Mark the goal and store intermediate info for reward computations.
-        # goal_poses = scene_info_copy['goal_pos']
-        # goal_poses = np.vstack([goal_poses, goal_poses])
-
-
 
         # ----------------- COMPUTING GOAL ANCHOR POSITIONS (PRE-TRANSFORMATION) -----------------
         # before, was num_holes x num_anchors x 1 x 3
@@ -204,6 +175,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
 
         # iterate through rigids, then iterate through holes
         for rigid in range(num_rigids):
+            offset_dir = np.sign(self.rigid_data[i]['rigid_transform']['translation'][1])
             rigid_goal_anchor_positions = []
             for hole in range(deform_params['num_holes']):
                 hole_vertices = self.args.deform_true_loop_vertices[hole]
@@ -218,40 +190,10 @@ class Tax3dProcClothEnv(Tax3dEnv):
                 for anchor in range(self.num_anchors):
                     anchor_pos = vertex_positions[anchor_vertices[anchor]]
                     # small offset to make sure the gripper goes past the hanger
-                    goal_anchor_pos = anchor_pos + flow + np.array([0, -1.5, 0.5])
+                    goal_anchor_pos = anchor_pos + flow + np.array([0, 1.5 * offset_dir, 0.5])
                     hole_goal_anchor_positions.append(goal_anchor_pos)
                 rigid_goal_anchor_positions.append(hole_goal_anchor_positions)
             goal_anchor_positions.append(np.asarray(rigid_goal_anchor_positions))
-
-
-
-        # # TODO: need to do this for each goal now
-        # # ----------------- COMPUTING GOAL POSITIONS (PRE-TRANSFORMATION) - OLD -----------------
-        # _, vertex_positions = get_mesh_data(self.sim, deform_id)
-        # vertex_positions = np.array(vertex_positions)
-        # # NOTE: the order here is dependent on DEFORM_INFO - arbitrary object transformations could result in cloth-flipping
-        # # NOTE: this also means we should be careful about which gripper we attach to which anchor
-        # anchor_vertices = DEFORM_INFO[deform_obj]['deform_anchor_vertices']
-        # goal_anchor_positions = []
-        
-        # for hole_id in range(deform_params["num_holes"]):
-        #     hole_vertices = self.args.deform_true_loop_vertices[hole_id]
-        #     centroid_points = vertex_positions[hole_vertices]
-        #     centroid_points = centroid_points[~np.isnan(centroid_points).any(axis=1)]
-        #     centroid = centroid_points.mean(axis=0)
-
-        #     flow = goal_poses[hole_id] - centroid
-
-        #     # compute the goal positions for each anchor
-        #     hole_goal_anchor_positions = []
-        #     for anchor in range(self.num_anchors):
-        #         anchor_pos = vertex_positions[anchor_vertices[anchor]]
-        #         # small offset to make sure the gripper goes past the hanger
-        #         goal_anchor_pos = anchor_pos + flow + np.array([0, -1.5, 0.5])
-        #         hole_goal_anchor_positions.append(goal_anchor_pos)
-        #     goal_anchor_positions.append(hole_goal_anchor_positions)
-
-        # breakpoint()
 
         # ----------------- TRANSFORMING ALL OBJECTS AND GOALS -----------------
         # Transform the deformable object, if necessary.
@@ -277,7 +219,6 @@ class Tax3dProcClothEnv(Tax3dEnv):
                 rigid_translation = rigid_transform_i['translation']
 
                 # Apply the transformation to the rigid objects.
-                # scene_info_copy = copy.deepcopy(SCENE_INFO[self.scene_name])
                 scene_info_copy = scene_info[i]
                 num_entities = len(scene_info_copy['entities'].keys())
                 for j, (name, kwargs) in enumerate(scene_info_copy['entities'].items()):
@@ -298,30 +239,6 @@ class Tax3dProcClothEnv(Tax3dEnv):
                     [rigid_rotation.apply(anchor_goal) + rigid_translation for anchor_goal in hole_goal_anchor_positions]
                     for hole_goal_anchor_positions in goal_anchor_positions_i
                 ])
-
-        # # --- OLD RIGID AND GOAL TRANSFORMATION CODE
-        # # Transform the rigid objects and goals, if necessary.
-        # if 'rotation' in self.rigid_transform and 'translation' in self.rigid_transform:
-        #     rigid_rotation = R.from_euler('xyz', self.rigid_transform['rotation'])
-        #     rigid_translation = self.rigid_transform['translation']
-        #     # Apply the transformation to the rigid objects.
-        #     for i, (name, kwargs) in enumerate(scene_info_copy['entities'].items()):
-        #         rigid_position = kwargs['basePosition']
-        #         rigid_orientation = kwargs['baseOrientation']
-        #         # rigid_position = rigid_rotation.apply(rigid_position) + rigid_translation
-        #         rigid_position = rigid_position + rigid_translation
-        #         rigid_orientation = (rigid_rotation * R.from_euler('xyz', rigid_orientation)).as_euler('xyz')
-        #         self.sim.resetBasePositionAndOrientation(rigid_ids[i], rigid_position, pybullet.getQuaternionFromEuler(rigid_orientation))
-
-        #     # Apply the transformation to the goal data.
-        #     goal_poses = [
-        #         rigid_rotation.apply(goal_pos) + rigid_translation
-        #         for goal_pos in goal_poses
-        #     ]
-        #     goal_anchor_positions = [
-        #         [rigid_rotation.apply(anchor_goal) + rigid_translation for anchor_goal in hole_goal_anchor_positions]
-        #         for hole_goal_anchor_positions in goal_anchor_positions
-        #     ]
         
         return {
             'deform_id': deform_id,
@@ -407,20 +324,31 @@ class Tax3dProcClothEnv(Tax3dEnv):
     def random_cloth_transform(self):
         raise NotImplementedError("Need to implement this")
 
-    def random_anchor_transform(self):
-        z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
-        rotation = R.from_euler('z', z_rot)
-        # translation = np.array([
-        #     np.random.uniform() * 5 * np.power(-1, z_rot < 0),
-        #     np.random.uniform() * -10,
-        #     0.0
-        # ])
-        translation = np.array([
-            np.random.uniform() * 3.5 * np.power(-1, z_rot < 0),
-            np.random.uniform() * -7.5,
-            0.0
-        ])
-        return rotation, translation
+    def random_anchor_transform(self, num_anchors, random_flip=False):
+        # brute force sampling
+        while True:
+            z_rot = np.random.uniform(-np.pi / 3, np.pi / 3, size=num_anchors)
+            rotation = R.from_euler('z', z_rot).as_euler('xyz')
+
+            translation = np.array([
+                np.random.uniform(size=num_anchors) * 5 * np.power(-1, z_rot < 0),
+                np.random.uniform(size=num_anchors) * -10,
+                np.array([0.0] * num_anchors)
+            ]).T
+
+            # randomly flip anchor to the other side (accounting for initial cloth pose)
+            if random_flip:
+                flip_idx = np.random.choice([True, False], size=num_anchors)
+                # translation[flip, 0] = -translation[flip, 0] + 2 * DEFORM_INFO['procedural_hang_cloth']['deform_init_pos'][0]
+                translation[flip_idx, 1] = -translation[flip_idx, 1] + 2 * DEFORM_INFO['procedural_hang_cloth']['deform_init_pos'][1]
+                rotation[flip_idx, 2] *= -1
+
+            # check if any anchor is too close to another
+            dists = cdist(translation, translation, metric='euclidean')
+
+            # check that all anchors are at least MIN_ANCHOR_DIST apart, but ignore the diagonal
+            if np.all(dists[np.triu_indices(num_anchors, k=1)] > MIN_ANCHOR_DIST):
+                return rotation, translation
 
     def random_anchor_transform_ood(self):
         z_rot = np.random.uniform(-np.pi / 3, np.pi / 3)
@@ -447,7 +375,7 @@ class Tax3dProcClothEnv(Tax3dEnv):
         _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
         vertex_positions = np.array(vertex_positions)
 
-        # new output is going to be num_rigids x num_holes x 1
+        # output is num_rigids x num_holes
         num_rigids = len(self.goal_pos)
         num_holes = len(self.args.deform_true_loop_vertices)
         centroid_checks = np.zeros((num_rigids, num_holes), dtype=bool)
@@ -465,32 +393,13 @@ class Tax3dProcClothEnv(Tax3dEnv):
                 centroid_dists[i, j] = dist
         
         return centroid_checks, centroid_dists
-    
-        # centroid_checks = []
-        # centroid_dists = []
-        # num_holes_to_track = min(
-        #     len(self.args.deform_true_loop_vertices), len(self.goal_pos)
-        # )
-
-        for i in range(num_holes_to_track):
-            true_loop_vertices = self.args.deform_true_loop_vertices[i]
-            goal_pos = self.goal_pos[i]
-            pts = np.array(vertex_positions)
-            cent_pts = pts[true_loop_vertices]
-            cent_pts = cent_pts[~np.isnan(cent_pts).any(axis=1)]
-            cent_pos = cent_pts.mean(axis=0)
-            dist = np.linalg.norm(cent_pos - goal_pos)
-            centroid_checks.append(dist < 1.5)
-            centroid_dists.append(dist)
-        return np.array(centroid_checks), np.array(centroid_dists)
 
     def check_post_release(self):
         # polygon check
         _, vertex_positions = get_mesh_data(self.sim, self.deform_id)
         vertex_positions = np.array(vertex_positions)
 
-
-        # new output is going to be num_rigids x num_holes x 1
+        # output is num_rigids x num_holes
         num_rigids = len(self.goal_pos)
         num_holes = len(self.args.deform_true_loop_vertices)
         polygon_checks = np.zeros((num_rigids, num_holes), dtype=bool)
@@ -506,21 +415,3 @@ class Tax3dProcClothEnv(Tax3dEnv):
                 polygon_checks[i, j] = polygon.contains(point)
 
         return polygon_checks, None
-
-
-
-        polygon_checks = []
-        # TODO: this is going to have to change, since we acn now have multiple anchors
-        num_holes_to_track = min(
-            len(self.args.deform_true_loop_vertices), len(self.goal_pos)
-        )
-        for i in range(num_holes_to_track):
-            true_loop_vertices = self.args.deform_true_loop_vertices[i]
-            true_loop_vertices = order_loop_vertices(true_loop_vertices)
-            goal_pos = self.goal_pos[i]
-            pts = np.array(vertex_positions)
-            cent_pts = pts[true_loop_vertices]
-            polygon = Polygon(cent_pts[:, :2])
-            point = Point(goal_pos[:2])
-            polygon_checks.append(polygon.contains(point))
-        return np.array(polygon_checks), None

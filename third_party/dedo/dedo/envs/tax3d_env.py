@@ -159,6 +159,7 @@ class Tax3dEnv(gym.Env):
     def reset(self, deform_data = {}, rigid_data = {}):
         self.stepnum = 0
         self.rigid_pcd = None
+        self.rigid_pcd_ids = None
         self.episode_reward = 0.0
         self.anchors = {}
         self.vid_frames = []
@@ -241,6 +242,8 @@ class Tax3dEnv(gym.Env):
         # Setting rigid point cloud - still using initial frame for now.
         pcd, ids = self.get_pcd_obs().values()
         self.rigid_pcd = pcd[ids > 0]
+        self.rigid_pcd_ids = ids[ids > 0]
+
         obs = self.get_obs()
 
         # Updating rollout video
@@ -334,7 +337,6 @@ class Tax3dEnv(gym.Env):
             info = self.make_final_steps()
             post_release_check, post_release_check_info = self.check_post_release()
 
-            breakpoint()
             # success requires both checks to pass for at least one hole
             info['is_success'] = np.any(pre_release_check * post_release_check)
             info['pre_release_check'] = pre_release_check_info
@@ -501,10 +503,12 @@ class Tax3dEnv(gym.Env):
         # Get action-object (deformable) point cloud from mesh.
         _, action_pcd = get_mesh_data(self.sim, self.deform_id)
         action_pcd = np.array(action_pcd)
+        action_seg = np.zeros(action_pcd.shape[0])
 
         # Get anchor-object (rigid) from first-frame point cloud.
         if self.rigid_pcd is not None:
             rigid_pcd = self.rigid_pcd
+            rigid_pcd_ids = self.rigid_pcd_ids
         else:
             raise ValueError("Rigid pcd not set - must be set during reset.")
 
@@ -512,7 +516,9 @@ class Tax3dEnv(gym.Env):
             'gripper_state': grip_obs,
             'done': done,
             'action_pcd': action_pcd,
+            'action_seg': action_seg,
             'anchor_pcd': rigid_pcd,
+            'anchor_seg': rigid_pcd_ids,
         }
         return obs_dict
     

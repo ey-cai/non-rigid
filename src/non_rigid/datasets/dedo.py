@@ -129,6 +129,7 @@ class DedoDataset(data.Dataset):
         goal_action_pc = action_pc + flow
 
         # manually creating seg tensors
+        # TODO: revise to use actual segmentation masks from demo
         seg = torch.ones_like(action_pc[:, 0]).int()
         seg_anchor = torch.zeros_like(anchor_pc[:, 0]).int()
 

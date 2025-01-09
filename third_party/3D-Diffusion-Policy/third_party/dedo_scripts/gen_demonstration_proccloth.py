@@ -60,7 +60,7 @@ if __name__ == '__main__':
     random_cloth_pose = args.random_cloth_pose
     random_anchor_geometry = args.random_anchor_geometry
     random_anchor_pose = args.random_anchor_pose
-    num_anchors = args.num_anchors
+    num_anchors = int(args.num_anchors)
     cloth_hole = args.cloth_hole
     tag = args.tag
     use_robot_env = args.robot_env
@@ -70,7 +70,7 @@ if __name__ == '__main__':
         raise ValueError(f'Invalid cloth hole configuration: {cloth_hole}')
 
     # parse num_anchors
-    anchor_num_list = list(map(int, num_anchors.split(',')))
+    # anchor_num_list = list(map(int, num_anchors.split(',')))
 
 
     ##############################################
@@ -82,8 +82,8 @@ if __name__ == '__main__':
     anchor_pose = 'random' if random_anchor_pose else 'fixed'
     num_holes = 1 if cloth_hole == 'single' else 2
     # check that num_holes divides num_episodes
-    if num_episodes % num_holes != 0:
-        raise ValueError(f'num_episodes ({num_episodes}) must be divisible by num_holes ({num_holes})')
+    if num_episodes % (num_holes * num_anchors) != 0:
+        raise ValueError(f'num_episodes ({num_episodes}) must be divisible by num_holes ({num_holes}) x num_anchors ({num_anchors})')
 
     # experiment name
     exp_name_dir = (
@@ -91,8 +91,9 @@ if __name__ == '__main__':
         f'anchor={anchor_geometry}-{anchor_pose} ' + \
         f'hole={cloth_hole}{tag} ' + \
         f'robot={use_robot_env} ' + \
-        f'num_anchors={num_anchors} ' + \
-        'debug'
+        f'num_anchors={num_anchors}'
+        # f'num_anchors={num_anchors} ' + \
+        # 'debug'
     )
 
     # creating directories
@@ -213,39 +214,24 @@ if __name__ == '__main__':
                 }
             
             # randomizing anchor pose
-            rigid_data = {}
             if random_anchor_pose:
-                for anchor_i in range(2):
-                    if split == 'val_ood':
-                        rigid_rotation, rigid_translation = env.random_anchor_transform_ood()
-                    else:
-                        rigid_rotation, rigid_translation = env.random_anchor_transform()
-                    rigid_rotation = rigid_rotation.as_euler('xyz')
-                    rigid_transform = {
-                        'rotation': rigid_rotation,
-                        'translation': rigid_translation,
-                    }
-                    rigid_data[anchor_i] = {
-                        'rigid_transform': rigid_transform,
-                        'rigid_params': rigid_params,
-                    }
+                if split == 'val_ood':
+                    rigid_rotation, rigid_translation = env.random_anchor_transform_ood(num_anchors)
+                else:
+                    rigid_rotation, rigid_translation = env.random_anchor_transform(num_anchors)
             else:
                 raise ValueError("Only generating datasets for random anchor poses")
-            
-            # initializing deform and rigid data
-            # deform_data = {
-            #     'deform_transform': deform_transform,
-            #     'deform_params': deform_params,
-            # }
-            # TODO: eventually, this should sample num anchor from a list?
-            # rigid_data = {
-            #     0: {
-            #         'rigid_transform': rigid_transform,
-            #         'rigid_params': rigid_params,
-            #     }
-            # }
 
-            breakpoint()
+            rigid_data = {
+                i: {
+                    'rigid_transform': {
+                        'rotation': rigid_rotation[i],
+                        'translation': rigid_translation[i],
+                    },
+                    'rigid_params': rigid_params,
+                }
+                for i in range(num_anchors)
+            }
 
             action_pcd_arrays_sub_list = []
             anchor_pcd_arrays_sub_list = []
@@ -261,104 +247,104 @@ if __name__ == '__main__':
             rollout_vid_list = []
 
             for hole in range(num_holes):
-                # reset the environment
-                obs = env.reset(
-                    # deform_transform=deform_transform,
-                    # rigid_transform=rigid_transform,
-                    # deform_params=deform_params,
-                    # rigid_params=rigid_params,
-                    deform_data=deform_data,
-                    rigid_data=rigid_data,
-                )
+                for anchor in range(num_anchors):
+                    # reset the environment
+                    obs = env.reset(
+                        deform_data=deform_data,
+                        rigid_data=rigid_data,
+                    )
 
-                # initializing tax3d demo
-                tax3d_demo = {
-                    'action_pc': obs['action_pcd'],
-                    'action_seg': np.ones(obs['action_pcd'].shape[0]),
-                    'anchor_pc': obs['anchor_pcd'],
-                    'anchor_seg': np.ones(obs['anchor_pcd'].shape[0]),
-                    'deform_transform': deform_transform,
-                    'rigid_transform': rigid_transform,
-                    'deform_params': deform_params,
-                    'rigid_params': rigid_params,
-                    # 'deform_texture_path': deform_params.get('texture_path', None),
-                    # 'rigid_texture_path': rigid_params.get('texture_path', None),
-                }
+                    # initializing tax3d demo
+                    tax3d_demo = {
+                        'action_pc': obs['action_pcd'],
+                        # 'action_seg': np.ones(obs['action_pcd'].shape[0]),
+                        'action_seg': obs['action_seg'],
+                        'anchor_pc': obs['anchor_pcd'],
+                        # 'anchor_seg': np.ones(obs['anchor_pcd'].shape[0]),
+                        'anchor_seg': obs['anchor_seg'],
+                        # 'deform_transform': deform_transform,
+                        # TODO: this needs to udpated to have info for multiple anchors
+                        # 'rigid_transform': rigid_transform,
+                        'deform_params': deform_params,
+                        'rigid_params': rigid_params,
+                        # 'deform_texture_path': deform_params.get('texture_path', None),
+                        # 'rigid_texture_path': rigid_params.get('texture_path', None),
+                    }
 
-                # episode data
-                action_pcd_arrays_sub = []
-                anchor_pcd_arrays_sub = []
-                state_arrays_sub = []
-                action_arrays_sub = []
-                cloth_size_arrays_sub = []
+                    # episode data
+                    action_pcd_arrays_sub = []
+                    anchor_pcd_arrays_sub = []
+                    state_arrays_sub = []
+                    action_arrays_sub = []
+                    cloth_size_arrays_sub = []
 
-                success = False
-                total_count_sub = 0
-                reward_sum = 0
+                    success = False
+                    total_count_sub = 0
+                    reward_sum = 0
 
-                # rollout the policy for this hole
-                while True:
-                    # get action
-                    action = env.pseudo_expert_action(0, hole)
-                    total_count_sub += 1
+                    # rollout the policy for this hole
+                    while True:
+                        # get action
+                        action = env.pseudo_expert_action(anchor, hole)
+                        total_count_sub += 1
 
-                    # downsample point clouds for demos (not tax3d demos)
-                    obs_action_pcd = obs['action_pcd']
-                    obs_anchor_pcd = obs['anchor_pcd']
-                    gripper_state = obs['gripper_state']
+                        # downsample point clouds for demos (not tax3d demos)
+                        obs_action_pcd = obs['action_pcd']
+                        obs_anchor_pcd = obs['anchor_pcd']
+                        gripper_state = obs['gripper_state']
 
-                    cloth_size = obs_action_pcd.shape[0]
-                    if cloth_size < action_num_points:
-                        # pad
-                        pad = np.zeros((action_num_points - cloth_size, 3))
-                        obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
+                        cloth_size = obs_action_pcd.shape[0]
+                        if cloth_size < action_num_points:
+                            # pad
+                            pad = np.zeros((action_num_points - cloth_size, 3))
+                            obs_action_pcd = np.concatenate([obs_action_pcd, pad], axis=0)
 
-                    if obs_anchor_pcd.shape[0] > anchor_num_points:
-                        obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
+                        if obs_anchor_pcd.shape[0] > anchor_num_points:
+                            obs_anchor_pcd = downsample_with_fps(obs_anchor_pcd, anchor_num_points)
 
-                    # update episode data
-                    action_pcd_arrays_sub.append(obs_action_pcd)
-                    anchor_pcd_arrays_sub.append(obs_anchor_pcd)
-                    state_arrays_sub.append(gripper_state)
-                    action_arrays_sub.append(action)
-                    cloth_size_arrays_sub.append([cloth_size])
+                        # update episode data
+                        action_pcd_arrays_sub.append(obs_action_pcd)
+                        anchor_pcd_arrays_sub.append(obs_anchor_pcd)
+                        state_arrays_sub.append(gripper_state)
+                        action_arrays_sub.append(action)
+                        cloth_size_arrays_sub.append([cloth_size])
 
-                    # step environment
-                    obs, reward, done, info = env.step(action, action_type=action_type)
-                    reward_sum += reward
-                    if done:
-                        success = info['is_success']
-                        success_sub_list.append(int(success))
+                        # step environment
+                        obs, reward, done, info = env.step(action, action_type=action_type)
+                        reward_sum += reward
+                        if done:
+                            success = info['is_success']
+                            success_sub_list.append(int(success))
+                            break
+
+                    if success:
+                        print("Success!")
+                        # updating successful demo
+                        action_pcd_arrays_sub_list.extend(action_pcd_arrays_sub)
+                        anchor_pcd_arrays_sub_list.extend(anchor_pcd_arrays_sub)
+                        state_arrays_sub_list.extend(state_arrays_sub)
+                        action_arrays_sub_list.extend(action_arrays_sub)
+                        total_count_sub_list.append(total_count_sub)
+                        cloth_size_arrays_sub_list.extend(cloth_size_arrays_sub)
+                        reward_sum_list.append(reward_sum)
+
+                        # updating successful tax3d demo
+                        tax3d_demo["flow"] = obs["action_pcd"] - tax3d_demo["action_pc"]
+                        tax3d_demo_list.append(tax3d_demo)
+
+                        # updating successful rollout video
+                        vid_frames = [
+                            Image.fromarray(frame) for frame in info["vid_frames"]
+                        ]
+                        rollout_vid_list.append(vid_frames)
+                        total_successes += 1
+                    else:
+                        print("Failed.")
+                        total_failures += 1
                         break
 
-                if success:
-                    print("Success!")
-                    # updating successful demo
-                    action_pcd_arrays_sub_list.extend(action_pcd_arrays_sub)
-                    anchor_pcd_arrays_sub_list.extend(anchor_pcd_arrays_sub)
-                    state_arrays_sub_list.extend(state_arrays_sub)
-                    action_arrays_sub_list.extend(action_arrays_sub)
-                    total_count_sub_list.append(total_count_sub)
-                    cloth_size_arrays_sub_list.extend(cloth_size_arrays_sub)
-                    reward_sum_list.append(reward_sum)
-
-                    # updating successful tax3d demo
-                    tax3d_demo["flow"] = obs["action_pcd"] - tax3d_demo["action_pc"]
-                    tax3d_demo_list.append(tax3d_demo)
-
-                    # updating successful rollout video
-                    vid_frames = [
-                        Image.fromarray(frame) for frame in info["vid_frames"]
-                    ]
-                    rollout_vid_list.append(vid_frames)
-                    total_successes += 1
-                else:
-                    print("Failed.")
-                    total_failures += 1
-                    break
-
             # in order to save data, policy must be successful on all holes
-            if np.sum(success_sub_list) == num_holes:
+            if np.sum(success_sub_list) == (num_holes * num_anchors):
                 # update episode ends, successes, and rewards
                 episode_ends_arrays.extend(np.cumsum(total_count_sub_list) + total_count)
                 total_count += np.sum(total_count_sub_list)
@@ -399,8 +385,8 @@ if __name__ == '__main__':
                         duration=33,
                         loop=0,
                     )
-                num_success += num_holes
-                pbar.update(num_holes)
+                num_success += (num_holes * num_anchors)
+                pbar.update(num_holes * num_anchors)
             else:
                 print("Failed on at least one hole, retrying...")
 

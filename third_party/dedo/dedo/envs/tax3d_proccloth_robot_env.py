@@ -143,7 +143,7 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
     def get_pcd_obs(self, width=500, height=500):
         obs = super().get_pcd_obs(width, height)
 
-        # filter out robot link ids from object ids
+        # Filter out robot link ids from object ids.
         obj_ids = []
         for oid in self.object_ids:
             oid_joints = self.sim.getNumJoints(oid)
@@ -155,6 +155,14 @@ class Tax3dProcClothRobotEnv(Tax3dProcClothEnv):
             'pcd': obs['pcd'][obj_filter],
             'ids': obs['ids'][obj_filter],
         }
+
+        # Map segmentation maks ids to rigid anchor ids.
+        for (rigid_anchor_id, rigid_ids) in self.rigid_anchor_ids.items():
+            rigid_anchor_seg_ids = []
+            for rigid_id in rigid_ids:
+                for rigid_id_link in range(-1, self.sim.getNumJoints(rigid_id)):
+                    rigid_anchor_seg_ids.append(rigid_id + ((rigid_id_link + 1) << 24))
+            obs['ids'][np.isin(obs['ids'], rigid_anchor_seg_ids)] = rigid_anchor_id
         return obs
     
     def do_action_ee_position(self, action):
