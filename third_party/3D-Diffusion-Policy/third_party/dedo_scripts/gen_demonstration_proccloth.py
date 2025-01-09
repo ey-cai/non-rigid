@@ -265,10 +265,12 @@ if __name__ == '__main__':
                         # 'deform_transform': deform_transform,
                         # TODO: this needs to udpated to have info for multiple anchors
                         # 'rigid_transform': rigid_transform,
-                        'deform_params': deform_params,
-                        'rigid_params': rigid_params,
+                        # 'deform_params': deform_params,
+                        # 'rigid_params': rigid_params,
                         # 'deform_texture_path': deform_params.get('texture_path', None),
                         # 'rigid_texture_path': rigid_params.get('texture_path', None),
+                        'deform_data': deform_data,
+                        'rigid_data': rigid_data,
                     }
 
                     # episode data

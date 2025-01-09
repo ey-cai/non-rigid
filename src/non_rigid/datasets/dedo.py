@@ -66,27 +66,39 @@ class DedoDataset(data.Dataset):
         action_pc = torch.as_tensor(demo["action_pc"]).float()
         anchor_pc = torch.as_tensor(demo["anchor_pc"]).float()
         flow = torch.as_tensor(demo["flow"]).float()
+        # loading segmentation masks if available
+        if "action_seg" in demo:
+            action_seg = torch.as_tensor(demo["action_seg"]).int()
+        else:
+            action_seg = torch.zeros_like(action_pc[:, 0]).int()
+
+        if "anchor_seg" in demo:
+            anchor_seg = torch.as_tensor(demo["anchor_seg"]).int()
+        else:
+            anchor_seg = torch.ones_like(anchor_pc[:, 0]).int()
 
         # initializing item dict
         # TODO: eventually, these keys will have to update with newer DEDO env
         item = {
-            # "rot": torch.as_tensor(demo["rot"]).float(),
-            # "trans": torch.as_tensor(demo["trans"]).float(),
-            "deform_transform": demo["deform_transform"].item(),
-            "rigid_transform": demo["rigid_transform"].item(),
-            "deform_params": demo["deform_params"].item(),
-            "rigid_params": demo["rigid_params"].item(),
+            # "deform_transform": demo["deform_transform"].item(),
+            # "rigid_transform": demo["rigid_transform"].item(),
+            # "deform_params": demo["deform_params"].item(),
+            # "rigid_params": demo["rigid_params"].item(),
+            "deform_data": demo["deform_data"].item(),
+            "rigid_data": demo["rigid_data"].item(),
         }
 
-        # downsample action
+        # downsample action 
         if use_indices is not None and "action_pc_indices" in use_indices:
             action_pc_indices = use_indices["action_pc_indices"]
             action_pc = action_pc[action_pc_indices]
+            action_seg = action_seg[action_pc_indices]
             flow = flow[action_pc_indices]
         elif self.sample_size_action > 0 and action_pc.shape[0] > self.sample_size_action:
             action_pc, action_pc_indices = downsample_pcd(action_pc.unsqueeze(0), self.sample_size_action, type=self.dataset_cfg.downsample_type)
             action_pc_indices = action_pc_indices.squeeze(0)
             action_pc = action_pc.squeeze(0)
+            action_seg = action_seg[action_pc_indices]
             flow = flow[action_pc_indices]
         else:
             action_pc_indices = torch.arange(action_pc.shape[0])
@@ -95,10 +107,12 @@ class DedoDataset(data.Dataset):
         if use_indices is not None and "anchor_pc_indices" in use_indices:
             anchor_pc_indices = use_indices["anchor_pc_indices"]
             anchor_pc = anchor_pc[anchor_pc_indices]
+            anchor_seg = anchor_seg[anchor_pc_indices]
         elif self.sample_size_anchor > 0 and anchor_pc.shape[0] > self.sample_size_anchor:
             anchor_pc, anchor_pc_indices = downsample_pcd(anchor_pc.unsqueeze(0), self.sample_size_anchor, type=self.dataset_cfg.downsample_type)
             anchor_pc_indices = anchor_pc_indices.squeeze(0)
             anchor_pc = anchor_pc.squeeze(0)
+            anchor_seg = anchor_seg[anchor_pc_indices]
         else:
             anchor_pc_indices = torch.arange(anchor_pc.shape[0])
 
@@ -107,17 +121,6 @@ class DedoDataset(data.Dataset):
             item["action_pc_indices"] = action_pc_indices
             item["anchor_pc_indices"] = anchor_pc_indices
 
-
-        # # downsample action
-        # if self.sample_size_action > 0 and action_pc.shape[0] > self.sample_size_action:
-        #     action_pc, action_pc_indices = downsample_pcd(action_pc.unsqueeze(0), self.sample_size_action, type=self.dataset_cfg.downsample_type)
-        #     action_pc = action_pc.squeeze(0)
-        #     flow = flow[action_pc_indices.squeeze(0)]
-
-        # # downsample anchor
-        # if self.sample_size_anchor > 0 and anchor_pc.shape[0] > self.sample_size_anchor:
-        #     anchor_pc, anchor_pc_indices = downsample_pcd(anchor_pc.unsqueeze(0), self.sample_size_anchor, type=self.dataset_cfg.downsample_type)
-        #     anchor_pc = anchor_pc.squeeze(0)
 
         # randomly occlude the anchor
         if self.dataset_cfg.anchor_occlusion:
@@ -128,10 +131,10 @@ class DedoDataset(data.Dataset):
         # compute goal action point cloud
         goal_action_pc = action_pc + flow
 
-        # manually creating seg tensors
-        # TODO: revise to use actual segmentation masks from demo
-        seg = torch.ones_like(action_pc[:, 0]).int()
-        seg_anchor = torch.zeros_like(anchor_pc[:, 0]).int()
+        # # manually creating seg tensors
+        # # TODO: revise to use actual segmentation masks from demo
+        # seg = torch.ones_like(action_pc[:, 0]).int()
+        # seg_anchor = torch.zeros_like(anchor_pc[:, 0]).int()
 
         # apply scene-level augmentation
         T = random_se3(
@@ -166,7 +169,7 @@ class DedoDataset(data.Dataset):
         # handle scene-anchor processing
         if self.scene_anchor:
             anchor_pc = torch.cat([action_pc, anchor_pc], dim=0)
-            seg_anchor = torch.cat([seg, seg_anchor], dim=0)
+            anchor_seg = torch.cat([action_seg, anchor_seg], dim=0)
         
         goal_action_pc = goal_action_pc - center
         anchor_pc = anchor_pc - center
@@ -184,11 +187,8 @@ class DedoDataset(data.Dataset):
         item["flow"] = gt_flow # Ground-truth flow (cross-frame) to action points
         item["T_goal2world"] = T_goal2world.get_matrix().squeeze(0)
         item["T_action2world"] = T_action2world.get_matrix().squeeze(0)
-        # TODO: eventually, remove "seg" keys
-        #item["seg"] = torch.ones_like(action_pc[:, 0]).int()
-        #item["seg_anchor"] = torch.ones_like(anchor_pc[:, 0]).int()
-        item["seg"] = seg
-        item["seg_anchor"] = seg_anchor
+        item["seg"] = action_seg
+        item["seg_anchor"] = anchor_seg
 
         # handle relative pose
         if self.dataset_cfg.rel_pose:
@@ -217,7 +217,8 @@ class DedoDataModule(L.LightningDataModule):
             f"cloth={self.dataset_cfg.cloth_geometry}-{self.dataset_cfg.cloth_pose} " + \
             f"anchor={self.dataset_cfg.anchor_geometry}-{self.dataset_cfg.anchor_pose} " + \
             f"hole={self.dataset_cfg.hole} " + \
-            f"robot={self.dataset_cfg.robot}"
+            f"robot={self.dataset_cfg.robot} " + \
+            f"num_anchors={self.dataset_cfg.num_anchors}"
         )
         self.root = Path(data_dir) / self.dataset_cfg.task / exp_dir
     
@@ -275,7 +276,8 @@ class DedoDataModule(L.LightningDataModule):
 def cloth_collate_fn(batch):
     # batch can contain a list of dictionaries
     # we need to convert those to a dictionary of lists
-    dict_keys = ["deform_transform", "rigid_transform", "deform_params", "rigid_params"]
+    # dict_keys = ["deform_transform", "rigid_transform", "deform_params", "rigid_params"]
+    dict_keys = ["deform_data", "rigid_data"]
     keys = batch[0].keys()
     out = {k: None for k in keys}
     for k in keys:

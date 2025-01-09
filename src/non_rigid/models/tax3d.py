@@ -298,6 +298,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         pred = pred_dict[self.prediction_type]["pred"]
 
         # computing error metrics
+        seg = seg == 0
         rmse = flow_rmse(pred, ground_truth, mask=True, seg=seg).reshape(bs, num_samples)
         pred = pred.reshape(bs, num_samples, -1, 3)
 
@@ -519,9 +520,10 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         results_world = pred_dict["results_world"]
 
         # masking out non-action points in scene-level processing
+        # TODO: this needs to be swapped
         if run_cfg.dataset.scene:
-            pred_action = pred_action[:, scene_seg.squeeze().bool(), :]
-            results_world = [res[:, scene_seg.squeeze(0).bool(), :] for res in results_world]
+            pred_action = pred_action[:, scene_seg.squeeze() == 0, :]
+            results_world = [res[:, scene_seg.squeeze(0) == 0, :] for res in results_world]
 
         return pred_action, results_world
 
