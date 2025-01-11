@@ -25,6 +25,7 @@ cloth_geometry: single
 cloth_pose: fixed
 anchor_geometry: single
 anchor_pose: random
+num_anchors: 2
 hole: single
 
 # Dataset pre-processing options

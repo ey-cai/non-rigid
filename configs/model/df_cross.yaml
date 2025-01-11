@@ -15,6 +15,7 @@ rel_pose: False # Use relative action-anchor pose for diffusion
 rel_pose_type: translation # (quaternion, rotation_6d, logmap, translation) representation for relative action-anchor pose
 center_type: anchor_center # [action_center, anchor_center, scene_center, none], centers the point clouds
 action_context_center_type: center # [center, random, none], centers the action context point clouds
+predict_ref_frame: False # Predict reference frame for anchor point cloud
 
 # Encoder settings
 x_encoder: mlp # Encoder current timestep x

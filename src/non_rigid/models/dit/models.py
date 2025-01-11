@@ -27,6 +27,66 @@ def modulate(x, shift, scale):
 
 
 #################################################################################
+#                         Reference Frame Predictor                             #
+#################################################################################
+
+class ReferenceFramePredictor(nn.Module):
+    """
+    Reference frame predictor for TAX3D.
+    """
+    def __init__(self, hidden_size, num_heads, **block_kwargs):
+        super().__init__()
+        self.input_mlp = nn.Conv1d(
+            3,
+            hidden_size,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=True,
+        )
+        self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+        self.attn = CrossAttention(
+            dim_x=hidden_size,
+            dim_y=hidden_size,
+            num_heads=num_heads,
+            qkv_bias=True,
+            **block_kwargs,
+        )
+        self.output_mlp = nn.Conv1d(
+            hidden_size,
+            4,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=True,
+        )
+
+    def forward(self, x):
+        """
+        x: (B, C, N)
+        """
+        B, C, N = x.shape
+        # TODO: this module should be able to visualize attention weights and residuals easily
+
+        # input point cloud attends to itself, with final output (logit, residual)
+        x_embed = self.input_mlp(x)
+        x_embed = x_embed.permute(0, 2, 1)
+        x_embed = self.norm1(x_embed)
+        x_embed = self.attn(x_embed, x_embed)
+        x_embed = self.output_mlp(x_embed.permute(0, 2, 1))
+        x_embed = x_embed.permute(0, 2, 1)
+
+        # gumbel softmax, and sample residual
+        logits = x_embed[:, :, 0]
+        indices = torch.nn.functional.gumbel_softmax(logits, tau=1, hard=True)
+        indices = indices.argmax(dim=-1)
+
+        residuals = x_embed[torch.arange(B), indices, 1:]
+        ref_points = x[torch.arange(B), :, indices]
+        return ref_points + residuals
+
+
+#################################################################################
 #               Embedding Layers for Timesteps and Class Labels                 #
 #################################################################################
 
@@ -94,7 +154,6 @@ class RelativePoseEmbedder(nn.Module):
     
     def forward(self, poses):
         return self.mlp(poses)
-
 
 class LabelEmbedder(nn.Module):
     """

@@ -81,6 +81,8 @@ def main(cfg):
         bs = 2
     else:
         raise ValueError(f"Unknown hole type: {cfg.dataset.hole}.")
+    bs *= cfg.dataset.num_anchors
+
     cfg.inference.batch_size = bs
     cfg.inference.val_batch_size = bs
     cfg.dataset.sample_size_action = -1
@@ -127,7 +129,7 @@ def main(cfg):
     # Helper function to run evals for a given dataset.
     ######################################################################
     def run_eval(dataset, model):
-        num_samples = cfg.inference.num_wta_trials // bs
+        num_samples = cfg.inference.num_wta_trials # // bs
         num_batches = len(dataset) // bs
         eval_keys = ["pc_action", "pc_anchor", "pc", "flow", "seg", "seg_anchor", "T_action2world", "T_goal2world"]
         if cfg.model.rel_pose:
@@ -151,7 +153,7 @@ def main(cfg):
 
             # get the rest of the batch
             for j in range(1, bs):
-                item = dataset.__getitem__(i * bs + j, downsample_indices=downsample_indices)
+                item = dataset.__getitem__(i * bs + j, use_indices=downsample_indices)
                 batch_list.append({key: item[key] for key in eval_keys})
 
             # convert to batch
@@ -163,14 +165,15 @@ def main(cfg):
             # pc = batch["pc"].to(device)
             # seg = batch["seg"].to(device)
 
-            batch_rmse = torch.zeros(bs, cfg.inference.num_wta_trials)
+            batch_rmse = torch.zeros(bs, cfg.inference.num_wta_trials * bs)
 
             for j in range(bs):
                 # expand ground truth pc to compute RMSE for cloth-specific sample
                 gt_pc = batch["pc"][j].unsqueeze(0).to(device)
                 seg = batch["seg"][j].unsqueeze(0).to(device)
-                gt_pc = expand_pcd(gt_pc, num_samples)
-                seg = expand_pcd(seg, num_samples)
+                gt_pc = expand_pcd(gt_pc, num_samples * bs)
+                seg = expand_pcd(seg, num_samples * bs)
+                seg = seg == 0
                 batch_rmse[j] = flow_rmse(pred_pc, gt_pc, mask=True, seg=seg)
 
             # computing precision and coverage

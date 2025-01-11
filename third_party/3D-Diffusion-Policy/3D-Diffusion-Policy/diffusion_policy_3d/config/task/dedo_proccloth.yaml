@@ -44,8 +44,10 @@ dataset:
   cloth_pose: random
   anchor_geometry: single
   anchor_pose: random
+  num_anchors: 2
   hole: single
   robot: True
+  
   goal_conditioning: ${policy.goal_conditioning}
   action_size: ${task.action_size}
   anchor_size: ${task.anchor_size}

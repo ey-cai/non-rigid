@@ -26,29 +26,30 @@ from non_rigid.models.dit.models import (
     DiT_PointCloud_Unc_Cross,
     Rel3D_DiT_PointCloud_Unc_Cross,
     DiT_PointCloud_Cross,
-    DiT_PointCloud
+    DiT_PointCloud,
+    ReferenceFramePredictor,
 )
 from non_rigid.utils.logging_utils import viz_predicted_vs_gt
 from non_rigid.utils.pointcloud_utils import expand_pcd
 
 
-def DiT_pcu_S(**kwargs):
-    return DiT_pcu(depth=12, hidden_size=384, num_heads=6, **kwargs)
+# def DiT_pcu_S(**kwargs):
+#     return DiT_pcu(depth=12, hidden_size=384, num_heads=6, **kwargs)
 
 
-def DiT_pcu_xS(**kwargs):
-    return DiT_pcu(depth=5, hidden_size=128, num_heads=4, **kwargs)
+# def DiT_pcu_xS(**kwargs):
+#     return DiT_pcu(depth=5, hidden_size=128, num_heads=4, **kwargs)
 
 
-def DiT_pcu_cross_xS(**kwargs):
-    return DiT_PointCloud_Unc_Cross(depth=5, hidden_size=128, num_heads=4, **kwargs)
+# def DiT_pcu_cross_xS(**kwargs):
+#     return DiT_PointCloud_Unc_Cross(depth=5, hidden_size=128, num_heads=4, **kwargs)
 
 
-def Rel3D_DiT_pcu_cross_xS(**kwargs):
-    # Embed dim divisible by 3 for 3D positional encoding and divisible by num_heads for multi-head attention
-    return Rel3D_DiT_PointCloud_Unc_Cross(
-        depth=5, hidden_size=132, num_heads=4, **kwargs
-    )
+# def Rel3D_DiT_pcu_cross_xS(**kwargs):
+#     # Embed dim divisible by 3 for 3D positional encoding and divisible by num_heads for multi-head attention
+#     return Rel3D_DiT_PointCloud_Unc_Cross(
+#         depth=5, hidden_size=132, num_heads=4, **kwargs
+#     )
 
 def DiT_PointCloud_Cross_xS(use_rotary, **kwargs):
     # hidden size divisible by 3 for rotary embedding, and divisible by num_heads for multi-head attention
@@ -62,10 +63,10 @@ def DiT_PointCloud_xS(use_rotary, **kwargs):
 
 # TODO: clean up all unused functions
 DiT_models = {
-    "DiT_pcu_S": DiT_pcu_S,
-    "DiT_pcu_xS": DiT_pcu_xS,
-    "DiT_pcu_cross_xS": DiT_pcu_cross_xS,
-    "Rel3D_DiT_pcu_cross_xS": Rel3D_DiT_pcu_cross_xS,
+    # "DiT_pcu_S": DiT_pcu_S,
+    # "DiT_pcu_xS": DiT_pcu_xS,
+    # "DiT_pcu_cross_xS": DiT_pcu_cross_xS,
+    # "Rel3D_DiT_pcu_cross_xS": Rel3D_DiT_pcu_cross_xS,
     # there is no Rel3D_DiT_pcu_xS
     "DiT_PointCloud_Cross_xS": DiT_PointCloud_Cross_xS,
     # TODO: add the SD model here
@@ -111,6 +112,16 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         self.model_cfg = cfg.model
         self.prediction_type = self.model_cfg.type # flow or point
         self.mode = cfg.mode # train or eval
+
+        # TODO: Reference frame predictor
+        if self.model_cfg.predict_ref_frame:
+            self.ref_frame_predictor = ReferenceFramePredictor(
+                hidden_size=128,
+                num_heads=4,
+            )
+        else:
+            self.ref_frame_predictor = None
+
 
         # prediction type-specific processing
         # TODO: eventually, this should be removed by updating dataset to use "point" instead of "pc"
@@ -167,12 +178,18 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         )
         return [optimizer], [lr_scheduler]
 
-    def get_model_kwargs(self, batch, nun_samples=None):
+    def get_model_kwargs(self, batch, num_samples=None):
         """
         Get the model kwargs for the forward pass.
         """
         raise NotImplementedError("This should be implemented in the derived class.")
     
+    def update_ref_frame(self, model_kwargs):
+        """
+        Update the model kwargs with the reference frame prediction.
+        """
+        raise NotImplementedError("This should be implemented in the derived class.")
+
     def get_world_preds(self, batch, num_samples, pc_action, pred_dict):
         """
         Get world frame predictions from the given batch and predictions.
@@ -191,6 +208,10 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         """
         ground_truth = batch[self.label_key].permute(0, 2, 1) # channel first
         model_kwargs = self.get_model_kwargs(batch)
+
+        # TODO: REFERENCE FRAME PREDICTION
+        if self.ref_frame_predictor is not None:
+            model_kwargs = self.update_ref_frame(model_kwargs)
 
         # run diffusion
         # noise = torch.randn_like(ground_truth) * self.noise_scale
@@ -218,6 +239,10 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         # TODO: replace bs with batch_size?
         bs, sample_size = batch["pc_action"].shape[:2]
         model_kwargs = self.get_model_kwargs(batch, num_samples)
+
+        # TODO: REFERENCE FRAME PREDICTION
+        if self.ref_frame_predictor is not None:
+            model_kwargs = self.update_ref_frame(model_kwargs)
 
         # generating latents and running diffusion
         z = torch.randn(bs * num_samples, 3, sample_size, device=self.device)
@@ -598,6 +623,15 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
             if num_samples is not None:
                 rel_pose = expand_pcd(rel_pose, num_samples)
             model_kwargs["rel_pose"] = rel_pose
+        return model_kwargs
+    
+    def update_ref_frame(self, model_kwargs):
+        """
+        Update the model kwargs with the reference frame prediction.
+        """
+        # should update pc_anchor
+        ref_frame = self.ref_frame_predictor(model_kwargs["y"])
+        model_kwargs["y"] = model_kwargs["y"] - ref_frame.unsqueeze(-1)
         return model_kwargs
     
     def get_world_preds(self, batch, num_samples, pc_action, pred_dict):

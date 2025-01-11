@@ -604,6 +604,7 @@ class EvalTAX3DWorkspace:
         anchor_geometry = self.run_cfg.dataset.anchor_geometry
         anchor_pose = self.run_cfg.dataset.anchor_pose
         hole = self.run_cfg.dataset.hole
+        num_anchors = self.run_cfg.dataset.num_anchors
         robot = self.run_cfg.dataset.robot
         dataset_dir = self.run_cfg.dataset.data_dir + self.run_cfg.dataset.task
 
@@ -620,7 +621,8 @@ class EvalTAX3DWorkspace:
             f'cloth={cloth_geometry}-{cloth_pose} ' + \
             f'anchor={anchor_geometry}-{anchor_pose} ' + \
             f'hole={hole} ' + \
-            f'robot={robot}'
+            f'robot={robot} ' + \
+            f'num_anchors={num_anchors}'
         )
         dataset_dir = os.path.join(
             os.path.expanduser(dataset_dir),

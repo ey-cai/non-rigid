@@ -124,13 +124,10 @@ class DedoEnv:
         next_obs = self.get_obs()
         return next_obs, reward, done, info
 
-    def reset(self, deform_transform={}, rigid_transform={},
-              deform_params={}, rigid_params={}):
+    def reset(self, deform_data={}, rigid_data={}):
         self.env.reset(
-            deform_transform=deform_transform,
-            rigid_transform=rigid_transform,
-            deform_params=deform_params,
-            rigid_params=rigid_params
+            deform_data=deform_data,
+            rigid_data=rigid_data,
         )
         return self.get_obs()
 

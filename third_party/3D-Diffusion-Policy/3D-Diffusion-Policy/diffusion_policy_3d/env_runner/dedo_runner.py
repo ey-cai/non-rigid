@@ -218,12 +218,16 @@ class DedoRunner(BaseRunner):
             pbar.set_description(f"DEDO {self.task_name} Env ({num_successes})")
             # get rot, trans, deform params
             demo = dataset[id]
-            deform_params = demo['deform_params'][()]
-            deform_transform = demo['deform_transform'][()]
-            rigid_params = demo['rigid_params'][()]
-            rigid_transform = demo['rigid_transform'][()]
+
+
+            # deform_params = demo['deform_params'][()]
+            # deform_transform = demo['deform_transform'][()]
+            # rigid_params = demo['rigid_params'][()]
+            # rigid_transform = demo['rigid_transform'][()]
             # goal_pc = demo['action_pc'] + demo['flow']
             # goal_pc = torch.from_numpy(goal_pc).to(device=device)
+            deform_data = demo['deform_data'][()]
+            rigid_data = demo['rigid_data'][()]
 
             if self.goal_conditioning.startswith('gt'):
                 # grab goal directly from ground truth demo data
@@ -240,10 +244,12 @@ class DedoRunner(BaseRunner):
                 goal_pc = None
 
             obs = env.reset(
-                deform_params=deform_params,
-                deform_transform=deform_transform,
-                rigid_params=rigid_params,
-                rigid_transform=rigid_transform,
+                # deform_params=deform_params,
+                # deform_transform=deform_transform,
+                # rigid_params=rigid_params,
+                # rigid_transform=rigid_transform,
+                deform_data=deform_data,
+                rigid_data=rigid_data,
             )
             policy.reset()
 
@@ -270,7 +276,7 @@ class DedoRunner(BaseRunner):
                         obs_dict_input['seg'] = torch.ones((action_ds.shape[0], self.action_size), device=device).int()
                         obs_dict_input['seg_anchor'] = torch.zeros((anchor_ds.shape[0], self.anchor_size), device=device).int()
 
-                        action_dict = policy.predict_action(obs_dict_input, deform_params, self.control_type)
+                        action_dict = policy.predict_action(obs_dict_input, deform_data['deform_params'], self.control_type)
                     else:
                         # first, downsample action, anchor and goal point cloud
                         action_ds, anchor_ds, goal_ds = self.downsample_obs(obs_dict['action_pcd'], obs_dict['anchor_pcd'], goal_pc)
