@@ -18,6 +18,7 @@ from tqdm import tqdm
 import numpy as np
 
 import rpad.visualize_3d.plots as vpl
+from plotly import graph_objects as go
 
 def visualize_batched_point_clouds(point_clouds):
     """
@@ -139,6 +140,7 @@ def main(cfg):
         eval_keys = ["pc_action", "pc_anchor", "pc", "flow", "seg", "seg_anchor", "T_action2world", "T_goal2world"]
         if cfg.model.rel_pose:
             eval_keys.append("rel_pose")
+        predict_ref_frame = cfg.model.predict_ref_frame
 
         for i in tqdm(indices):
             # index item, and batchify
@@ -155,6 +157,8 @@ def main(cfg):
             anchor_pc = batch["pc_anchor"].squeeze().cpu().numpy()
             action_pc = batch["pc_action"].squeeze().cpu().numpy()
             gt_pc = batch["pc"].squeeze().cpu().numpy()
+            if predict_ref_frame:
+                pred_ref_frame = pred_dict["ref_frame"].cpu().numpy()
 
             # get segmentations
             pred_seg = np.arange(3, 3 + num_samples).reshape(-1, 1).repeat(pred_pc.shape[1], axis=-1)
@@ -162,7 +166,7 @@ def main(cfg):
             action_seg = np.ones(action_pc.shape[0])
             gt_seg = np.ones(gt_pc.shape[0]) * 2
 
-            # visualize
+            # visualize point cloud predictions
             pred_pc = np.concatenate(pred_pc, axis=0)
             pred_seg = np.concatenate(pred_seg, axis=0)
             fig = vpl.segmentation_fig(
@@ -179,14 +183,66 @@ def main(cfg):
                     gt_seg,
                 ]).astype(int),
             )
+            # add in reference frame predictions, if necessary
+            if predict_ref_frame:
+                ref_frame_trace = go.Scatter3d(
+                    x=pred_ref_frame[:, 0],
+                    y=pred_ref_frame[:, 1],
+                    z=pred_ref_frame[:, 2],
+                    mode="markers",
+                    marker={"size": 30, "color": np.arange(3, 3 + num_samples)},
+                    scene="scene",
+                    showlegend=True,
+                )
+                fig.add_trace(ref_frame_trace)
             fig.show()
+
+
+            # visualize per-point weights and residuals, if necessary
+            if predict_ref_frame:
+                # need anchor point cloud, and also output from ref frame predictor
+
+                # grab logits and residuals (only need the first sample, since all have the same anchor)
+                logit_residuals = pred_dict["logit_residuals"][0]
+                logits = logit_residuals[:, 0]
+                residuals = logit_residuals[:, 1:].cpu().numpy()
+                probs = torch.nn.functional.softmax(logits, dim=0).detach().cpu().numpy()
+
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter3d(
+                        mode="markers",
+                        marker={
+                            "size": 5,
+                            "color": probs,
+                            "colorscale": "Inferno",
+                            "colorbar": dict(title="Logits"),
+                        },
+                        x=anchor_pc[:, 0],
+                        y=anchor_pc[:, 1],
+                        z=anchor_pc[:, 2],
+                    ),
+                )
+
+                traces = vpl._flow_traces(
+                    start=anchor_pc,
+                    flows=residuals,
+                    flowscale=1.0,
+                    flowcolor=probs,
+                )
+                # just add the lines trace
+                fig.add_trace(traces[0])
+
+                fig.show()
+                breakpoint()
+                pass
 
     ######################################################################
     # Run the model on the train/val/test sets.
     ######################################################################
-    train_indices = [0]
-    val_indices = [0, 1]
-    val_ood_indices = [0, 1, 2]
+    train_indices = [0, 1, 2, 3, 4]
+    val_indices = []
+    val_ood_indices = []
     model.to(device)
     run_vis(datamodule.train_dataset, model, train_indices)
     run_vis(datamodule.val_dataset, model, val_indices)

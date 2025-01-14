@@ -7,49 +7,23 @@ import plotly.express as px
 import rpad.pyg.nets.dgcnn as dgcnn
 import rpad.visualize_3d.plots as vpl
 import torch
-import torch.nn.functional as F
-import torch_geometric.data as tgd
-import torch_geometric.transforms as tgt
 import torchvision as tv
 import wandb
 from diffusers import get_cosine_schedule_with_warmup
 from pytorch3d.transforms import Transform3d, Translate
 from pytorch3d.transforms import matrix_to_quaternion, matrix_to_rotation_6d
 from torch import nn, optim
-from torch_geometric.nn import fps
 
-from non_rigid.metrics.error_metrics import get_pred_pcd_rigid_errors
 from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pc_nn
 from non_rigid.models.dit.diffusion import create_diffusion
 # from non_rigid.models.dit.models import DiT_PointCloud_Unc as DiT_pcu
 from non_rigid.models.dit.models import (
-    DiT_PointCloud_Unc_Cross,
-    Rel3D_DiT_PointCloud_Unc_Cross,
     DiT_PointCloud_Cross,
     DiT_PointCloud,
     ReferenceFramePredictor,
 )
 from non_rigid.utils.logging_utils import viz_predicted_vs_gt
 from non_rigid.utils.pointcloud_utils import expand_pcd
-
-
-# def DiT_pcu_S(**kwargs):
-#     return DiT_pcu(depth=12, hidden_size=384, num_heads=6, **kwargs)
-
-
-# def DiT_pcu_xS(**kwargs):
-#     return DiT_pcu(depth=5, hidden_size=128, num_heads=4, **kwargs)
-
-
-# def DiT_pcu_cross_xS(**kwargs):
-#     return DiT_PointCloud_Unc_Cross(depth=5, hidden_size=128, num_heads=4, **kwargs)
-
-
-# def Rel3D_DiT_pcu_cross_xS(**kwargs):
-#     # Embed dim divisible by 3 for 3D positional encoding and divisible by num_heads for multi-head attention
-#     return Rel3D_DiT_PointCloud_Unc_Cross(
-#         depth=5, hidden_size=132, num_heads=4, **kwargs
-#     )
 
 def DiT_PointCloud_Cross_xS(use_rotary, **kwargs):
     # hidden size divisible by 3 for rotary embedding, and divisible by num_heads for multi-head attention
@@ -63,11 +37,6 @@ def DiT_PointCloud_xS(use_rotary, **kwargs):
 
 # TODO: clean up all unused functions
 DiT_models = {
-    # "DiT_pcu_S": DiT_pcu_S,
-    # "DiT_pcu_xS": DiT_pcu_xS,
-    # "DiT_pcu_cross_xS": DiT_pcu_cross_xS,
-    # "Rel3D_DiT_pcu_cross_xS": Rel3D_DiT_pcu_cross_xS,
-    # there is no Rel3D_DiT_pcu_xS
     "DiT_PointCloud_Cross_xS": DiT_PointCloud_Cross_xS,
     # TODO: add the SD model here
     "DiT_PointCloud_xS": DiT_PointCloud_xS,
@@ -211,7 +180,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
 
         # predict reference frame, if necessary
         if self.ref_frame_predictor is not None:
-            model_kwargs, ref_frame = self.update_ref_frame(model_kwargs)
+            model_kwargs, ref_frame, _ = self.update_ref_frame(model_kwargs)
             # updating corresponding ground truth with predicted reference frame
             ground_truth = ground_truth - ref_frame.unsqueeze(-1)
 
@@ -244,7 +213,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
 
         # predict reference frame, if necessary
         if self.ref_frame_predictor is not None:
-            model_kwargs, ref_frame = self.update_ref_frame(model_kwargs)
+            model_kwargs, ref_frame, logit_residuals = self.update_ref_frame(model_kwargs)
 
         # generating latents and running diffusion
         z = torch.randn(bs * num_samples, 3, sample_size, device=self.device)
@@ -299,6 +268,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
             }
             if self.ref_frame_predictor is not None:
                 pred_dict["ref_frame"] = ref_frame
+                pred_dict["logit_residuals"] = logit_residuals
 
             # compute world frame predictions
             pred_flow_world, pred_point_world, results_world = self.get_world_preds(
@@ -327,7 +297,6 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         seg = expand_pcd(seg, num_samples)
 
         # generating diffusion predictions
-        # TODO: this should probably specific full_prediction=False
         pred_dict = self.predict(
             batch, num_samples, unflatten=False, progress=True, full_prediction=False
         )
@@ -642,10 +611,9 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
         """
         Update the model kwargs with the reference frame prediction.
         """
-        # should update pc_anchor
-        ref_frame = self.ref_frame_predictor(model_kwargs["y"])
+        ref_frame, logit_residuals = self.ref_frame_predictor(model_kwargs["y"])
         model_kwargs["y"] = model_kwargs["y"] - ref_frame.unsqueeze(-1)
-        return model_kwargs, ref_frame
+        return model_kwargs, ref_frame, logit_residuals
     
     def get_world_preds(self, batch, num_samples, pc_action, pred_dict):
         """

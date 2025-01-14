@@ -83,7 +83,10 @@ class ReferenceFramePredictor(nn.Module):
 
         residuals = x_embed[torch.arange(B), indices, 1:]
         ref_points = x[torch.arange(B), :, indices]
-        return ref_points + residuals
+
+        # trying just points, instead of points + residuals
+        return ref_points, x_embed
+        # return ref_points + residuals, x_embed
 
 
 #################################################################################
