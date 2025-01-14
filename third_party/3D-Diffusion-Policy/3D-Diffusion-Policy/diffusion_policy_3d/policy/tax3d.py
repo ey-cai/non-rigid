@@ -31,8 +31,12 @@ class TAX3D(BasePolicy):
         # load network weights from checkpoint
         checkpoint = torch.load(ckpt_file, map_location=device)
         self.network.load_state_dict(
-            {k.partition(".")[2]: v for k, v, in checkpoint["state_dict"].items()}
+            {k.partition(".")[2]: v for k, v, in checkpoint["state_dict"].items() if k.startswith("network.")}
         )
+        if self.run_cfg.model.predict_ref_frame:
+            self.model.ref_frame_predictor.load_state_dict(
+                {k.partition(".")[2]: v for k, v, in checkpoint["state_dict"].items() if k.startswith("ref_frame_predictor.")}
+            )
         self.network.eval()
         self.model.eval()
         self.model.to(device)

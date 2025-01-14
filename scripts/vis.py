@@ -134,80 +134,64 @@ def main(cfg):
     ######################################################################
     # Helper function to run evals for a given dataset.
     ######################################################################
-    def run_eval(dataset, model):
-        num_samples = cfg.inference.num_wta_trials # // bs
-        num_batches = len(dataset) // bs
+    def run_vis(dataset, model, indices):
+        num_samples = cfg.inference.num_wta_trials
         eval_keys = ["pc_action", "pc_anchor", "pc", "flow", "seg", "seg_anchor", "T_action2world", "T_goal2world"]
         if cfg.model.rel_pose:
             eval_keys.append("rel_pose")
-            
-        rmse = []
-        coverage = []
-        precision = []
 
+        for i in tqdm(indices):
+            # index item, and batchify
+            item = dataset[i]
+            batch = [{key: item[key] for key in eval_keys}]
+            batch = {key: torch.stack([item[key] for item in batch]) for key in eval_keys}
 
-        for i in tqdm(range(num_batches)):
-            batch_list = []
-
-            # get first item in batch, and keep downsampling indices
-            item = dataset.__getitem__(i * bs, return_indices=True)
-            downsample_indices = {
-                "action_pc_indices": item["action_pc_indices"],
-                "anchor_pc_indices": item["anchor_pc_indices"],
-            }
-            batch_list.append({key: item[key] for key in eval_keys})
-
-            # get the rest of the batch
-            for j in range(1, bs):
-                item = dataset.__getitem__(i * bs + j, use_indices=downsample_indices)
-                batch_list.append({key: item[key] for key in eval_keys})
-
-            # convert to batch
-            batch = {key: torch.stack([item[key] for item in batch_list]) for key in eval_keys}
-
-            # generate predictions
+            # predict
             pred_dict = model.predict(batch, num_samples, progress=False)
-            pred_pc = pred_dict["point"]["pred"]
-            # pc = batch["pc"].to(device)
-            # seg = batch["seg"].to(device)
+            # TODO: PUT EVERYTHING BACK IN THE WORLD FRAME?
 
-            batch_rmse = torch.zeros(bs, cfg.inference.num_wta_trials * bs)
+            # get point clouds
+            pred_pc = pred_dict["point"]["pred"].cpu().numpy()
+            anchor_pc = batch["pc_anchor"].squeeze().cpu().numpy()
+            action_pc = batch["pc_action"].squeeze().cpu().numpy()
+            gt_pc = batch["pc"].squeeze().cpu().numpy()
 
-            for j in range(bs):
-                # expand ground truth pc to compute RMSE for cloth-specific sample
-                gt_pc = batch["pc"][j].unsqueeze(0).to(device)
-                seg = batch["seg"][j].unsqueeze(0).to(device)
-                gt_pc = expand_pcd(gt_pc, num_samples * bs)
-                seg = expand_pcd(seg, num_samples * bs)
-                seg = seg == 0
-                batch_rmse[j] = flow_rmse(pred_pc, gt_pc, mask=True, seg=seg)
+            # get segmentations
+            pred_seg = np.arange(3, 3 + num_samples).reshape(-1, 1).repeat(pred_pc.shape[1], axis=-1)
+            anchor_seg = np.zeros(anchor_pc.shape[0])
+            action_seg = np.ones(action_pc.shape[0])
+            gt_seg = np.ones(gt_pc.shape[0]) * 2
 
-            # computing precision and coverage
-            batch_precision = torch.min(batch_rmse, dim=0).values
-            batch_coverage = torch.min(batch_rmse, dim=1).values
-
-            # update dataset-wide metrics
-            rmse.append(batch_rmse.mean().item())
-            coverage.append(batch_coverage.mean().item())
-            precision.append(batch_precision.mean().item())
-            
-        rmse = np.mean(rmse)
-        coverage = np.mean(coverage)
-        precision = np.mean(precision)
-        return rmse, coverage, precision
-
+            # visualize
+            pred_pc = np.concatenate(pred_pc, axis=0)
+            pred_seg = np.concatenate(pred_seg, axis=0)
+            fig = vpl.segmentation_fig(
+                np.concatenate([
+                    pred_pc,
+                    anchor_pc,
+                    action_pc,
+                    gt_pc,
+                ]),
+                np.concatenate([
+                    pred_seg,
+                    anchor_seg,
+                    action_seg,
+                    gt_seg,
+                ]).astype(int),
+            )
+            fig.show()
 
     ######################################################################
     # Run the model on the train/val/test sets.
     ######################################################################
+    train_indices = [0]
+    val_indices = [0, 1]
+    val_ood_indices = [0, 1, 2]
     model.to(device)
-    train_rmse, train_coverage, train_precision = run_eval(datamodule.train_dataset, model)
-    val_rmse, val_coverage, val_precision = run_eval(datamodule.val_dataset, model)
-    val_ood_rmse, val_ood_coverage, val_ood_precision = run_eval(datamodule.val_ood_dataset, model)
+    run_vis(datamodule.train_dataset, model, train_indices)
+    run_vis(datamodule.val_dataset, model, val_indices)
+    run_vis(datamodule.val_ood_dataset, model, val_ood_indices)
 
-    print(f"Train RMSE: {train_rmse}, Coverage: {train_coverage}, Precision: {train_precision}")
-    print(f"Val RMSE: {val_rmse}, Coverage: {val_coverage}, Precision: {val_precision}")
-    print(f"Val OOD RMSE: {val_ood_rmse}, Coverage: {val_ood_coverage}, Precision: {val_ood_precision}")
 
 if __name__ == "__main__":
     main()

@@ -209,9 +209,11 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         ground_truth = batch[self.label_key].permute(0, 2, 1) # channel first
         model_kwargs = self.get_model_kwargs(batch)
 
-        # TODO: REFERENCE FRAME PREDICTION
+        # predict reference frame, if necessary
         if self.ref_frame_predictor is not None:
-            model_kwargs = self.update_ref_frame(model_kwargs)
+            model_kwargs, ref_frame = self.update_ref_frame(model_kwargs)
+            # updating corresponding ground truth with predicted reference frame
+            ground_truth = ground_truth - ref_frame.unsqueeze(-1)
 
         # run diffusion
         # noise = torch.randn_like(ground_truth) * self.noise_scale
@@ -240,9 +242,9 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         bs, sample_size = batch["pc_action"].shape[:2]
         model_kwargs = self.get_model_kwargs(batch, num_samples)
 
-        # TODO: REFERENCE FRAME PREDICTION
+        # predict reference frame, if necessary
         if self.ref_frame_predictor is not None:
-            model_kwargs = self.update_ref_frame(model_kwargs)
+            model_kwargs, ref_frame = self.update_ref_frame(model_kwargs)
 
         # generating latents and running diffusion
         z = torch.randn(bs * num_samples, 3, sample_size, device=self.device)
@@ -255,6 +257,9 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
             progress=progress,
             device=self.device,
         )
+        # revert pred from predicted reference frame, if necessary
+        if self.ref_frame_predictor is not None:
+            pred = pred + ref_frame.unsqueeze(-1)
         pred = pred.permute(0, 2, 1)
 
         if not full_prediction:
@@ -263,6 +268,10 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         else:
             # return full prediction (flow and point, goal and world frame)
             pc_action = model_kwargs["x0"].permute(0, 2, 1)
+            # revert results from predicted reference frame, if necessary
+            if self.ref_frame_predictor is not None:
+                results = [res + ref_frame.unsqueeze(-1) for res in results]
+            results = [res.permute(0, 2, 1) for res in results]
 
             # computing flow and point predictions
             if self.prediction_type == "flow":
@@ -270,13 +279,13 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
                 pred_point = pc_action + pred_flow
                 # for flow predictions, convert results to point predictions
                 results = [
-                    pc_action + res.permute(0, 2, 1) for res in results
+                    pc_action + res for res in results
                 ]
             elif self.prediction_type == "point":
                 pred_point = pred
                 pred_flow = pred_point - pc_action
                 results = [
-                    res.permute(0, 2, 1) for res in results
+                    res for res in results
                 ]
 
             pred_dict = {
@@ -288,6 +297,8 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
                 },
                 "results": results,
             }
+            if self.ref_frame_predictor is not None:
+                pred_dict["ref_frame"] = ref_frame
 
             # compute world frame predictions
             pred_flow_world, pred_point_world, results_world = self.get_world_preds(
@@ -318,7 +329,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         # generating diffusion predictions
         # TODO: this should probably specific full_prediction=False
         pred_dict = self.predict(
-            batch, num_samples, unflatten=False, progress=True
+            batch, num_samples, unflatten=False, progress=True, full_prediction=False
         )
         pred = pred_dict[self.prediction_type]["pred"]
 
@@ -443,6 +454,8 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         # logging visualizations
         ####################################################
         self.log_viz_to_wandb(batch, pred_wta_dict, f"val_{dataloader_idx}")
+
+        # TODO: there should be a function here to visualize and log the predicted reference frame
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         """
@@ -632,7 +645,7 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
         # should update pc_anchor
         ref_frame = self.ref_frame_predictor(model_kwargs["y"])
         model_kwargs["y"] = model_kwargs["y"] - ref_frame.unsqueeze(-1)
-        return model_kwargs
+        return model_kwargs, ref_frame
     
     def get_world_preds(self, batch, num_samples, pc_action, pred_dict):
         """
