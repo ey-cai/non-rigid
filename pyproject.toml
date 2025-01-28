@@ -42,6 +42,10 @@ dependencies = [
     "einops == 0.4.1",
     "numba == 0.56.4",
     "gym == 0.21.0",
+
+    # Required for PTv3
+    "addict",
+    "spconv-cu118",
 ]
 
 
@@ -65,10 +69,13 @@ build_docs = ["mkdocs-material", "mkdocstrings[python]"]
 
 # This is required to allow us to have notebooks/ at the top level.
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "third_party"]
 
 [tool.setuptools.package-data]
 non_rigid = ["py.typed"]
+
+[tool.black]
+exclude = "third_party/*"
 
 [tool.isort]
 profile = "black"
@@ -89,6 +96,7 @@ module = [
     "gif.*",
     "gym.*",
     "plotly.*",
+    "PointTransformerV3.*",
     "pybullet.*",
     "pybullet_data.*",
     "pybullet_utils.*",
@@ -115,3 +123,6 @@ generated-members = 'torch.*'
 [tool.pytest.ini_options]
 addopts = "--ignore=third_party/"
 testpaths = "tests"
+
+[tool.pyright]
+extraPaths = ['./third_party', './src', '../nets/src']

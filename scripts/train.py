@@ -50,10 +50,12 @@ def main(cfg):
     torch.backends.cudnn.benchmark = False
 
     # Since most of us are training on 3090s+, we can use mixed precision.
-    torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("high")
 
     # Global seed for reproducibility.
     L.seed_everything(cfg.seed)
+
+    torch.autograd.set_detect_anomaly(True)
 
     ######################################################################
     # Create the datamodule.
@@ -144,7 +146,8 @@ def main(cfg):
         logger=logger if not TESTING else False,
         check_val_every_n_epoch=cfg.training.check_val_every_n_epochs,
         # log_every_n_steps=2, # TODO: MOVE THIS TO TRAINING CFG
-        log_every_n_steps=len(datamodule.train_dataloader()),
+        # log_every_n_steps=len(datamodule.train_dataloader()),
+        log_every_n_steps=20,
         gradient_clip_val=cfg.training.grad_clip_norm,
         callbacks=(
             [

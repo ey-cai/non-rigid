@@ -1,16 +1,19 @@
 import os
-from functools import partial
 import pathlib
+from functools import partial
 from typing import Dict, List, Sequence, Union, cast
 
 import torch
 import torch.utils._pytree as pytree
-import torchvision as tv
 import wandb
 from lightning.pytorch import Callback
-from pytorch_lightning.loggers import WandbLogger
 from omegaconf import OmegaConf
+from pytorch_lightning.loggers import WandbLogger
 
+# from non_rigid.models.diptv3 import DiPTv3, DiPTv3_Small, DiPTv3Adapter
+from rpad.nets.diptv3 import DiPTv3, DiPTv3_Small, DiPTv3Adapter
+
+from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
 from non_rigid.models.df_base import (
     DiffusionFlowBase,
     FlowPredictionInferenceModule,
@@ -22,38 +25,47 @@ from non_rigid.models.regression import (
     LinearRegression,
     LinearRegressionInferenceModule,
     LinearRegressionTrainingModule,
-    RegressionNetwork,
     RegressionModule,
+    RegressionNetwork,
 )
 from non_rigid.models.tax3d import (
+    CrossDisplacementModule,
     DiffusionTransformerNetwork,
     SceneDisplacementModule,
-    CrossDisplacementModule,
 )
-
-from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
-
 
 PROJECT_ROOT = str(pathlib.Path(__file__).parent.parent.parent.parent.resolve())
 
-    
+
 def create_model_legacy(cfg):
     if cfg.model.name in ["df_base", "df_cross"]:
         network_fn = DiffusionFlowBase
         if cfg.mode == "train":
             # tax3d training modules
             if cfg.model.type == "flow":
-                module_fn = partial(FlowPredictionTrainingModule, training_cfg=cfg.training)
+                module_fn = partial(
+                    FlowPredictionTrainingModule, training_cfg=cfg.training
+                )
             elif cfg.model.type == "point":
-                module_fn = partial(PointPredictionTrainingModule, task_type=cfg.task_type, training_cfg=cfg.training)
+                module_fn = partial(
+                    PointPredictionTrainingModule,
+                    task_type=cfg.task_type,
+                    training_cfg=cfg.training,
+                )
             else:
                 raise ValueError(f"Invalid model type: {cfg.model.type}")
         elif cfg.mode == "eval":
             # tax3d inference modules
             if cfg.model.type == "flow":
-                module_fn = partial(FlowPredictionInferenceModule, inference_cfg=cfg.inference)
+                module_fn = partial(
+                    FlowPredictionInferenceModule, inference_cfg=cfg.inference
+                )
             elif cfg.model.type == "point":
-                module_fn = partial(PointPredictionInferenceModule, task_type=cfg.task_type, inference_cfg=cfg.inference)
+                module_fn = partial(
+                    PointPredictionInferenceModule,
+                    task_type=cfg.task_type,
+                    inference_cfg=cfg.inference,
+                )
             else:
                 raise ValueError(f"Invalid model type: {cfg.model.type}")
         else:
@@ -63,10 +75,14 @@ def create_model_legacy(cfg):
         network_fn = LinearRegression
         if cfg.mode == "train":
             # linear training module
-            module_fn = partial(LinearRegressionTrainingModule, training_cfg=cfg.training)
+            module_fn = partial(
+                LinearRegressionTrainingModule, training_cfg=cfg.training
+            )
         elif cfg.mode == "eval":
             # linear inference module
-            module_fn = partial(LinearRegressionInferenceModule, inference_cfg=cfg.inference)
+            module_fn = partial(
+                LinearRegressionInferenceModule, inference_cfg=cfg.inference
+            )
         else:
             raise ValueError(f"Invalid mode: {cfg.mode}")
     else:
@@ -91,6 +107,20 @@ def create_model(cfg):
     elif cfg.model.name == "regression":
         network_fn = RegressionNetwork
         module_fn = RegressionModule
+    elif cfg.model.name == "df_diptv3":
+        network_fn = lambda model_cfg: DiPTv3Adapter(DiPTv3(enable_flash=True))
+        module_fn = SceneDisplacementModule
+    elif cfg.model.name == "df_diptv3_cross":
+        network_fn = lambda model_cfg: DiPTv3Adapter(
+            DiPTv3_Small(
+                enable_flash=False,
+                in_channels=8,  # ONLY if we're adding 1-hot.
+                drop_path=0.0,
+            )
+        )
+        module_fn = CrossDisplacementModule
+    else:
+        raise ValueError(f"Invalid model name: {cfg.model.name}")
 
     # create network and model
     network = network_fn(model_cfg=cfg.model)
@@ -136,7 +166,9 @@ def create_datamodule(cfg):
 
     # updating job config sample sizes
     if cfg.dataset.scene:
-        job_cfg.sample_size = cfg.dataset.sample_size_action + cfg.dataset.sample_size_anchor
+        job_cfg.sample_size = (
+            cfg.dataset.sample_size_action + cfg.dataset.sample_size_anchor
+        )
     else:
         job_cfg.sample_size = cfg.dataset.sample_size_action
         job_cfg.sample_size_anchor = cfg.dataset.sample_size_anchor
@@ -147,7 +179,10 @@ def create_datamodule(cfg):
 
     return cfg, datamodule
 
-def load_checkpoint_config_from_wandb(current_cfg, task_overrides, entity, project, run_id):
+
+def load_checkpoint_config_from_wandb(
+    current_cfg, task_overrides, entity, project, run_id
+):
     # grab run config from wandb
     api = wandb.Api()
     run_cfg = OmegaConf.create(api.run(f"{entity}/{project}/{run_id}").config)
@@ -164,24 +199,39 @@ def load_checkpoint_config_from_wandb(current_cfg, task_overrides, entity, proje
             continue
         if OmegaConf.select(current_cfg, key) != OmegaConf.select(run_cfg, key):
             inconsistent_keys.append(key)
-    
+
     # for now, just raise an error if there are any inconsistencies
     if inconsistent_keys:
-        raise ValueError(f"Task overrides are inconsistent with original run config: {inconsistent_keys}")
-    
+        raise ValueError(
+            f"Task overrides are inconsistent with original run config: {inconsistent_keys}"
+        )
+
     # hack to keep data_dir override
     current_data_dir = current_cfg.dataset.data_dir
 
     # update run config with dataset and model configs from original run config
-    OmegaConf.update(current_cfg, "dataset", OmegaConf.select(run_cfg, "dataset"), merge=True, force_add=True)
-    OmegaConf.update(current_cfg, "model", OmegaConf.select(run_cfg, "model"), merge=True, force_add=True)
-    
+    OmegaConf.update(
+        current_cfg,
+        "dataset",
+        OmegaConf.select(run_cfg, "dataset"),
+        merge=True,
+        force_add=True,
+    )
+    OmegaConf.update(
+        current_cfg,
+        "model",
+        OmegaConf.select(run_cfg, "model"),
+        merge=True,
+        force_add=True,
+    )
+
     # small edge case - if 'eval', ignore 'train_size'/'val_size'
     if current_cfg.mode == "eval":
         current_cfg.dataset.train_size = None
         current_cfg.dataset.val_size = None
     current_cfg.dataset.data_dir = current_data_dir
     return current_cfg
+
 
 # This matching function
 def match_fn(dirs: Sequence[str], extensions: Sequence[str], root: str = PROJECT_ROOT):

@@ -16,6 +16,7 @@ import numpy as np
 import math
 from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from typing import Optional
+from PointTransformerV3.model import PointTransformerV3, Point
 
 from non_rigid.nets.dgcnn import DGCNN
 from non_rigid.models.dit.relative_encoding import RotaryPositionEncoding3D, MultiheadRelativeAttentionWrapper
@@ -508,6 +509,72 @@ class DiT(nn.Module):
         return torch.cat([eps, rest], dim=1)
 
 
+class PTV3Adapter(nn.Module):
+    def __init__(self, model: PointTransformerV3, grid_size: float):
+        super().__init__()
+        self.model = model
+        self.grid_size = grid_size
+
+    def forward(self, x: torch.FloatTensor):
+        # Permute to (B, N, C)
+        assert len(x.shape) == 3
+        assert x.shape[1] == 3
+        x = x.permute(0, 2, 1)  # type: ignore
+        B, N, C_in = x.shape
+
+
+
+        # Reshape to (BxN, C), and create a batch vector with the indices.
+        # Right now assuming that the batch has same number of points for each example.
+        full_pc_squashed = x.reshape(-1, C_in)
+        full_pc_batch = torch.repeat_interleave(
+            torch.arange(B, device=x.device), x.shape[1]
+        )
+
+        # TO device - probably not necessary...
+        # full_pc_squashed = full_pc_squashed.to(self.device)
+        # full_pc_batch = full_pc_batch.to(self.device)   
+
+        data = Point(
+            coord=full_pc_squashed,
+            feat=full_pc_squashed,
+            batch=full_pc_batch,
+            grid_size=self.grid_size,  # Not sure what to do here...
+        )
+        pred = self.model(data)
+        C_out = pred.feat.shape[-1]
+
+        # Only need the action points.
+        # Reshape back to (B, N, C)
+        feats = pred.feat.reshape(B, -1, C_out)
+
+        # Permute back
+        feats = feats.permute(0, 2, 1)
+        return feats
+
+def PTv3_xs():
+    '''Majorly decrease the size of the PointTransformerV3 model, from 34.5M to 6.1M. Accomplished by:
+        1. reducing the number of encoder/decoder modules by 2
+        2. changing the encoder channels
+        3. cutting the numebr of heads for the final encoder channel by half.
+    '''
+    return PTV3Adapter(
+        PointTransformerV3(
+            enable_flash=False, 
+            in_channels=3,
+            stride=(2, 2),
+            enc_depths=(2, 2, 6),
+            enc_channels=(32, 64, 128),
+            enc_num_head=(2, 8, 8),
+            enc_patch_size=(1024, 1024, 1024),
+            dec_depths=(2, 2),
+            dec_channels=(64, 128),
+            dec_num_head=(4, 8),
+            dec_patch_size=(1024, 1024),
+        ),
+        grid_size=0.001,
+    )
+
 class LinearRegressionModel(nn.Module):
     """
     Linear regression baseline, with attention - no diffusion.
@@ -898,6 +965,19 @@ class DiT_PointCloud_Cross(nn.Module):
                 padding=0,
                 bias=True,
             )
+        elif self.model_cfg.x_encoder == "ptv3_standalone":
+            raise NotImplementedError("Don't think this makes sense.")
+            self.x_embedder = nn.Sequential(
+                PTv3_xs(),
+                nn.Conv1d(
+                    64,
+                    x_encoder_hidden_dims,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=True,
+                ),
+            )
         else:
             raise ValueError(f"Invalid x_encoder: {self.model_cfg.x_encoder}")
         
@@ -915,6 +995,18 @@ class DiT_PointCloud_Cross(nn.Module):
             self.y_embedder = DGCNN(
                 input_dims=in_channels, emb_dims=hidden_size
             )
+        elif self.model_cfg.y_encoder == "ptv3_standalone":
+            self.y_embedder = nn.Sequential(
+                PTv3_xs(),
+                nn.Conv1d(
+                    64,
+                    hidden_size,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=True,
+                ),
+            )
         else:
             raise ValueError(f"Invalid y_encoder: {self.model_cfg.y_encoder}")            
 
@@ -931,6 +1023,18 @@ class DiT_PointCloud_Cross(nn.Module):
         elif self.model_cfg.x0_encoder == "dgcnn":
             self.x0_embedder = DGCNN(
                 input_dims=in_channels, emb_dims=x_encoder_hidden_dims
+            )
+        elif self.model_cfg.x0_encoder == "ptv3_standalone":
+            self.x0_embedder = nn.Sequential(
+                PTv3_xs(),
+                nn.Conv1d(
+                    64,
+                    x_encoder_hidden_dims,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=True,
+                ),
             )
         elif self.model_cfg.x0_encoder is None:
             pass
