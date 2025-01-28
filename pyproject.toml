@@ -122,3 +122,6 @@ generated-members = 'torch.*'
 [tool.pytest.ini_options]
 addopts = "--ignore=third_party/"
 testpaths = "tests"
+
+[tool.pyright]
+extraPaths = ['./third_party', './src', '../nets/src']

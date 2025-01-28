@@ -10,6 +10,9 @@ from lightning.pytorch import Callback
 from omegaconf import OmegaConf
 from pytorch_lightning.loggers import WandbLogger
 
+# from non_rigid.models.diptv3 import DiPTv3, DiPTv3_Small, DiPTv3Adapter
+from rpad.nets.diptv3 import DiPTv3, DiPTv3_Small, DiPTv3Adapter
+
 from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
 from non_rigid.models.df_base import (
     DiffusionFlowBase,
@@ -18,7 +21,6 @@ from non_rigid.models.df_base import (
     PointPredictionInferenceModule,
     PointPredictionTrainingModule,
 )
-from non_rigid.models.diptv3 import DiPTv3, DiPTv3_Small, DiPTv3Adapter
 from non_rigid.models.regression import (
     LinearRegression,
     LinearRegressionInferenceModule,

@@ -144,7 +144,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         self.diffusion = create_diffusion(
             timestep_respacing=None,
             diffusion_steps=self.diff_steps,
-            # noise_schedule=self.noise_schedule,
+            noise_schedule=self.model_cfg.diff_noise_schedule,
         )
 
     def configure_optimizers(self):
@@ -354,7 +354,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         # logging training metrics
         #########################################################
         self.log_dict(
-            {"train/loss": loss},
+            {"train/loss": loss, "train/t": t[0]},
             add_dataloader_idx=False,
             prog_bar=True,
         )
@@ -366,25 +366,27 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
 
         # additional logging
         if do_additional_logging:
-            # winner-take-all predictions
-            pred_wta_dict = self.predict_wta(batch, self.num_wta_trials)
+            with torch.no_grad():
+                self.eval()
+                # winner-take-all predictions
+                pred_wta_dict = self.predict_wta(batch, self.num_wta_trials)
 
-            ####################################################
-            # logging training wta metrics
-            ####################################################
-            self.log_dict(
-                {
-                    "train/rmse": pred_wta_dict["rmse"].mean(),
-                    "train/rmse_wta": pred_wta_dict["rmse_wta"].mean(),
-                },
-                add_dataloader_idx=False,
-                prog_bar=True,
-            )
+                ####################################################
+                # logging training wta metrics
+                ####################################################
+                self.log_dict(
+                    {
+                        "train/rmse": pred_wta_dict["rmse"].mean(),
+                        "train/rmse_wta": pred_wta_dict["rmse_wta"].mean(),
+                    },
+                    add_dataloader_idx=False,
+                    prog_bar=True,
+                )
 
-            ####################################################
-            # logging visualizations
-            ####################################################
-            self.log_viz_to_wandb(batch, pred_wta_dict, "train")
+                ####################################################
+                # logging visualizations
+                ####################################################
+                self.log_viz_to_wandb(batch, pred_wta_dict, "train")
 
         return loss
 
