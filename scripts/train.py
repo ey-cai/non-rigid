@@ -85,6 +85,23 @@ def main(cfg):
     # function to create the model (while separating out relevant vals).
     network, model = create_model(cfg)
 
+    # import rpad.visualize_3d.plots as vpl
+    # import numpy as np
+    # item = datamodule.train_dataset[0]
+    # pc_action = item["pc_action"].numpy()
+    # pc_anchor = item["pc_anchor"].numpy()
+    # pc = item["pc"].numpy()
+    # #pc_scene = pc + item["goal_origin"].numpy()
+    # seg_action = np.ones(pc_action.shape[0]) * 0
+    # seg_anchor = np.ones(pc_anchor.shape[0]) * 1
+    # seg = np.ones(pc.shape[0]) * 2
+    # #seg_scene = np.ones(pc_scene.shape[0]) * 3
+    # fig = vpl.segmentation_fig(
+    #     np.concatenate([pc_action, pc_anchor, pc]),
+    #     np.concatenate([seg_action, seg_anchor, seg]).astype(int),
+    # )
+    # fig.show()
+    # breakpoint()
     # datamodule.setup(stage="fit")
     # cfg.training.num_training_steps = (
     #     len(datamodule.train_dataloader()) * cfg.training.epochs
@@ -163,7 +180,7 @@ def main(cfg):
                 ),
                 ModelCheckpoint(
                     dirpath=cfg.lightning.checkpoint_dir,
-                    filename="{epoch}-{step}-{val_wta_rmse_0:.3f}",
+                    filename="{epoch}-{step}-{val_rmse_wta_0:.3f}",
                     monitor="val_rmse_wta_0",
                     mode="min",
                     save_weights_only=False,
@@ -234,6 +251,21 @@ def main(cfg):
         ckpt_file = None
 
     trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_file)
+
+    ######################################################################
+    # Log additional model checkpoints to wandb.
+    ######################################################################
+    monitors = ["val_rmse_wta_0"]
+    model_artifact = wandb.Artifact(f"model-{wandb.run.id}", type="model")
+    # iterate through each file in checkpoint dir
+    for file in os.listdir(cfg.lightning.checkpoint_dir):
+        if file.endswith(".ckpt"):
+            # check if metric name is in monitors
+            metric_name = file.split("-")[-1].split("=")[0]
+            if metric_name in monitors:
+                # add checkpoint to artifact
+                model_artifact.add_file(os.path.join(cfg.lightning.checkpoint_dir, file))
+    wandb.run.log_artifact(model_artifact, aliases=["monitor"])
 
 
 if __name__ == "__main__":
