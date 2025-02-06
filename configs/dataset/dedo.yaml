@@ -19,6 +19,10 @@ rel_pose: null # relative action-anchor pose
 rel_pose_type: null # (quaternion, rotation_6d, logmap, translation) rotation representation for relative action-anchor pose
 center_type: null # [action_center, anchor_center, scene_center, none], centers the point clouds
 action_context_center_type: null # [center, random, none], centers the action context point clouds
+predict_ref_frame: False # Predict reference frame for anchor point cloud
+diffuse_ref_frame: False # Diffuse reference frame for anchor point cloud
+oracle: False # if True, use action goal centroid
+noisy_goal_origin: False # if True, add noise to the goal frame origin
 
 # Environment-specific params
 cloth_geometry: single
@@ -32,8 +36,8 @@ hole: single
 # center_type: anchor_center # [action_center, anchor_center, anchor_random, scene_center, none], centers the point clouds w.r.t. the action, anchor, or no centering
 # action_context_center_type: center # [center, random, none], centers the action context point clouds
 # pcd_scale_factor: 15.0 # Scale factor for the point clouds
-action_transform_type: identity # Transformation type to apply to demonstrations
-anchor_transform_type: random_flat_upright # Transformation type to apply to demonstrations
+# action_transform_type: identity # Transformation type to apply to demonstrations
+# anchor_transform_type: random_flat_upright # Transformation type to apply to demonstrations
 translation_variance: 0.0 # Translation variance of the demo transformation
 rotation_variance: 180 # Rotation variance of the demo transformation
 
@@ -43,3 +47,6 @@ rotation_variance: 180 # Rotation variance of the demo transformation
 scene_transform_type: identity # Transformation type to apply to the scene
 
 anchor_occlusion: False # Whether to randomly occlude the anchor during training
+
+# Dummy config for tax3dv2.
+tax3dv2: null

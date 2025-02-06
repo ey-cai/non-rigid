@@ -29,6 +29,7 @@ from non_rigid.models.tax3d import (
     DiffusionTransformerNetwork,
     SceneDisplacementModule,
     CrossDisplacementModule,
+    TAX3Dv2Module,
 )
 
 from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
@@ -38,50 +39,53 @@ from non_rigid.datasets.dedo import DedoDataModule
 PROJECT_ROOT = str(pathlib.Path(__file__).parent.parent.parent.parent.resolve())
 
     
-def create_model_legacy(cfg):
-    if cfg.model.name in ["df_base", "df_cross"]:
-        network_fn = DiffusionFlowBase
-        if cfg.mode == "train":
-            # tax3d training modules
-            if cfg.model.type == "flow":
-                module_fn = partial(FlowPredictionTrainingModule, training_cfg=cfg.training)
-            elif cfg.model.type == "point":
-                module_fn = partial(PointPredictionTrainingModule, task_type=cfg.task_type, training_cfg=cfg.training)
-            else:
-                raise ValueError(f"Invalid model type: {cfg.model.type}")
-        elif cfg.mode == "eval":
-            # tax3d inference modules
-            if cfg.model.type == "flow":
-                module_fn = partial(FlowPredictionInferenceModule, inference_cfg=cfg.inference)
-            elif cfg.model.type == "point":
-                module_fn = partial(PointPredictionInferenceModule, task_type=cfg.task_type, inference_cfg=cfg.inference)
-            else:
-                raise ValueError(f"Invalid model type: {cfg.model.type}")
-        else:
-            raise ValueError(f"Invalid mode: {cfg.mode}")
-    elif cfg.model.name == "linear_regression":
-        assert cfg.model.type == "point", "Only point regression is supported."
-        network_fn = LinearRegression
-        if cfg.mode == "train":
-            # linear training module
-            module_fn = partial(LinearRegressionTrainingModule, training_cfg=cfg.training)
-        elif cfg.mode == "eval":
-            # linear inference module
-            module_fn = partial(LinearRegressionInferenceModule, inference_cfg=cfg.inference)
-        else:
-            raise ValueError(f"Invalid mode: {cfg.mode}")
-    else:
-        raise ValueError(f"Invalid model name: {cfg.model.name}")
-    # create network
-    network = network_fn(model_cfg=cfg.model)
-    model = module_fn(network=network, model_cfg=cfg.model)
+# def create_model_legacy(cfg):
+#     if cfg.model.name in ["df_base", "df_cross"]:
+#         network_fn = DiffusionFlowBase
+#         if cfg.mode == "train":
+#             # tax3d training modules
+#             if cfg.model.type == "flow":
+#                 module_fn = partial(FlowPredictionTrainingModule, training_cfg=cfg.training)
+#             elif cfg.model.type == "point":
+#                 module_fn = partial(PointPredictionTrainingModule, task_type=cfg.task_type, training_cfg=cfg.training)
+#             else:
+#                 raise ValueError(f"Invalid model type: {cfg.model.type}")
+#         elif cfg.mode == "eval":
+#             # tax3d inference modules
+#             if cfg.model.type == "flow":
+#                 module_fn = partial(FlowPredictionInferenceModule, inference_cfg=cfg.inference)
+#             elif cfg.model.type == "point":
+#                 module_fn = partial(PointPredictionInferenceModule, task_type=cfg.task_type, inference_cfg=cfg.inference)
+#             else:
+#                 raise ValueError(f"Invalid model type: {cfg.model.type}")
+#         else:
+#             raise ValueError(f"Invalid mode: {cfg.mode}")
+#     elif cfg.model.name == "linear_regression":
+#         assert cfg.model.type == "point", "Only point regression is supported."
+#         network_fn = LinearRegression
+#         if cfg.mode == "train":
+#             # linear training module
+#             module_fn = partial(LinearRegressionTrainingModule, training_cfg=cfg.training)
+#         elif cfg.mode == "eval":
+#             # linear inference module
+#             module_fn = partial(LinearRegressionInferenceModule, inference_cfg=cfg.inference)
+#         else:
+#             raise ValueError(f"Invalid mode: {cfg.mode}")
+#     else:
+#         raise ValueError(f"Invalid model name: {cfg.model.name}")
+#     # create network
+#     network = network_fn(model_cfg=cfg.model)
+#     model = module_fn(network=network, model_cfg=cfg.model)
 
-    # TODO: this should also check for a checkpoint id, and setup the network
-    return network, model
+#     # TODO: this should also check for a checkpoint id, and setup the network
+#     return network, model
 
 
 def create_model(cfg):
-    if cfg.model.name == "df_base":
+    if cfg.model.tax3dv2:
+        network_fn = DiffusionTransformerNetwork
+        module_fn = TAX3Dv2Module
+    elif cfg.model.name == "df_base":
         network_fn = DiffusionTransformerNetwork
         # module_fn = SceneDisplacementTrainingModule
         module_fn = SceneDisplacementModule
@@ -113,6 +117,11 @@ def create_datamodule(cfg):
     cfg.dataset.rel_pose_type = cfg.model.rel_pose_type
     cfg.dataset.center_type = cfg.model.center_type
     cfg.dataset.action_context_center_type = cfg.model.action_context_center_type
+    cfg.dataset.predict_ref_frame = cfg.model.predict_ref_frame
+    cfg.dataset.diffuse_ref_frame = cfg.model.diffuse_ref_frame
+    cfg.dataset.noisy_goal_origin = cfg.model.noisy_goal_origin
+    cfg.dataset.tax3dv2 = cfg.model.tax3dv2
+    cfg.dataset.oracle = cfg.model.oracle
 
     # TODO: eventually, probably better to override the other dataset cfgs 
     # based on model-specific params from model cfg

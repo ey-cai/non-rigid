@@ -13,6 +13,9 @@ from non_rigid.utils.transform_utils import random_se3
 from non_rigid.utils.pointcloud_utils import downsample_pcd 
 from non_rigid.utils.augmentation_utils import plane_occlusion
 
+import rpad.visualize_3d.plots as vpl
+from plotly import graph_objects as go
+
 class DedoDataset(data.Dataset):
     def __init__(self, root, dataset_cfg, split):
         super().__init__()
@@ -49,6 +52,9 @@ class DedoDataset(data.Dataset):
         if self.scene:
             raise NotImplementedError("Scene-level DEDO dataset not yet implemented.")
         
+        if self.dataset_cfg.tax3dv2 and (self.dataset_cfg.center_type != "scene_center" or self.dataset_cfg.action_context_center_type != "scene_center"):
+            raise ValueError("TAX3Dv2 requires scene centering.")
+        
     def __len__(self):
         return self.size
     
@@ -66,7 +72,7 @@ class DedoDataset(data.Dataset):
         action_pc = torch.as_tensor(demo["action_pc"]).float()
         anchor_pc = torch.as_tensor(demo["anchor_pc"]).float()
         flow = torch.as_tensor(demo["flow"]).float()
-        # loading segmentation masks if available
+        # loading segmentation masks if available TODO: eventually, assume these are available
         if "action_seg" in demo:
             action_seg = torch.as_tensor(demo["action_seg"]).int()
         else:
@@ -78,12 +84,7 @@ class DedoDataset(data.Dataset):
             anchor_seg = torch.ones_like(anchor_pc[:, 0]).int()
 
         # initializing item dict
-        # TODO: eventually, these keys will have to update with newer DEDO env
         item = {
-            # "deform_transform": demo["deform_transform"].item(),
-            # "rigid_transform": demo["rigid_transform"].item(),
-            # "deform_params": demo["deform_params"].item(),
-            # "rigid_params": demo["rigid_params"].item(),
             "deform_data": demo["deform_data"].item(),
             "rigid_data": demo["rigid_data"].item(),
         }
@@ -131,11 +132,6 @@ class DedoDataset(data.Dataset):
         # compute goal action point cloud
         goal_action_pc = action_pc + flow
 
-        # # manually creating seg tensors
-        # # TODO: revise to use actual segmentation masks from demo
-        # seg = torch.ones_like(action_pc[:, 0]).int()
-        # seg_anchor = torch.zeros_like(anchor_pc[:, 0]).int()
-
         # apply scene-level augmentation
         T = random_se3(
             N=1,
@@ -146,34 +142,53 @@ class DedoDataset(data.Dataset):
         action_pc = T.transform_points(action_pc)
         anchor_pc = T.transform_points(anchor_pc)
         goal_action_pc = T.transform_points(goal_action_pc)
-
+        
         # center the point clouds
-        if self.dataset_cfg.center_type == "action_center":
-            center = action_pc.mean(axis=0)
-        elif self.dataset_cfg.center_type == "anchor_center":
-            center = anchor_pc.mean(axis=0)
-        elif self.dataset_cfg.center_type == "scene_center":
-            center = torch.cat([action_pc, anchor_pc], dim=0).mean(axis=0)
-        elif self.dataset_cfg.center_type == "none":
-            center = torch.zeros(3, dtype=torch.float32)
+        if not self.dataset_cfg.oracle:
+            if self.dataset_cfg.center_type == "action_center":
+                center = action_pc.mean(axis=0)
+            elif self.dataset_cfg.center_type == "anchor_center":
+                center = anchor_pc.mean(axis=0)
+            elif self.dataset_cfg.center_type == "scene_center":
+                center = torch.cat([action_pc, anchor_pc], dim=0).mean(axis=0)
+            elif self.dataset_cfg.center_type == "none":
+                center = torch.zeros(3, dtype=torch.float32)
+            else:
+                raise ValueError(f"Invalid center type: {self.dataset_cfg.center_type}")
         else:
-            raise ValueError(f"Invalid center type: {self.dataset_cfg.center_type}")
+            # for oracle dataset, use goal action center
+            center = goal_action_pc.mean(axis=0)
         
         if self.dataset_cfg.action_context_center_type == "center":
             action_center = action_pc.mean(axis=0)
+        elif self.dataset_cfg.center_type == "scene_center":
+            action_center = torch.cat([action_pc, anchor_pc], dim=0).mean(axis=0)
         elif self.dataset_cfg.action_context_center_type == "none":
             action_center = torch.zeros(3, dtype=torch.float32)
         else:
             raise ValueError(f"Invalid action context center type: {self.dataset_cfg.action_context_center_type}")
         
+        # handle noisy goal origin for tax3dv1
+        if self.dataset_cfg.noisy_goal_origin and not self.dataset_cfg.diffuse_ref_frame:
+            center = center + torch.normal(mean=torch.zeros(3), std=torch.ones(3))
+
         # handle scene-anchor processing
         if self.scene_anchor:
             anchor_pc = torch.cat([action_pc, anchor_pc], dim=0)
             anchor_seg = torch.cat([action_seg, anchor_seg], dim=0)
-        
+    
         goal_action_pc = goal_action_pc - center
         anchor_pc = anchor_pc - center
         action_pc = action_pc - action_center
+
+        # if diffusing reference frame, store the goal origin and update the goal action point cloud
+        if self.dataset_cfg.diffuse_ref_frame:
+            goal_origin = goal_action_pc.mean(axis=0)
+            # handle noisy goal origin for tax3dv2
+            if self.dataset_cfg.noisy_goal_origin:
+                goal_origin = goal_origin + torch.normal(mean=torch.zeros(3), std=torch.ones(3))
+            goal_action_pc = goal_action_pc - goal_origin
+            item["goal_origin"] = goal_origin
 
         # updating item
         T_goal2world = Translate(center.unsqueeze(0)).compose(T.inverse())
@@ -198,7 +213,6 @@ class DedoDataset(data.Dataset):
                 item["rel_pose"] = rel_pose
             else:
                 raise ValueError(f"Invalid relative pose type: {self.dataset_cfg.rel_pose_type}")
-        
         return item
 
 

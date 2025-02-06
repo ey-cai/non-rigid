@@ -5,6 +5,7 @@ import json
 import omegaconf
 import torch
 import wandb
+from pytorch3d.transforms import Transform3d, Translate
 
 from non_rigid.utils.script_utils import (
     create_model,
@@ -12,6 +13,7 @@ from non_rigid.utils.script_utils import (
     load_checkpoint_config_from_wandb,
 )
 
+from non_rigid.nets.dgcnn import DGCNN
 from non_rigid.metrics.flow_metrics import flow_rmse
 from non_rigid.utils.pointcloud_utils import expand_pcd
 from tqdm import tqdm
@@ -89,6 +91,80 @@ def main(cfg):
     # cfg.dataset.sample_size_anchor = -1
 
     ######################################################################
+    # Load the reference frame predictor, if necessary.
+    ######################################################################
+    class FramePredictorDGCNN(torch.nn.Module):
+        def __init__(self, out_channels):
+            super(FramePredictorDGCNN, self).__init__()
+            self.out_channels = out_channels
+            self.dgcnn = DGCNN(emb_dims=512)
+            self.final = torch.nn.Conv1d(
+                in_channels=512,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=True,
+            )
+
+        def forward(self, batch):
+            # make sure all of the point clouds in the batch have the same number of points
+            ptr_diffs = torch.unique(batch.ptr[1:] - batch.ptr[:-1])
+            if len(ptr_diffs) > 1:
+                raise ValueError("All point clouds in the batch must have the same number of points.")
+            else:
+                num_points = ptr_diffs.item()
+            
+            input = batch.pos.reshape(-1, num_points, 3).permute(0, 2, 1)
+            output = self.dgcnn(input)
+            output = self.final(output)
+            # reshape output to get (B, N, C) shape
+            output = output.permute(0, 2, 1)
+
+            logits = output[..., [0]]
+            residuals = output[..., 1:4]
+            vars = output[..., 4:]
+
+            # run vars through softplus to ensure positive values
+            vars = torch.nn.functional.softplus(vars)
+
+            # add mean residuals to points to get mean predictions
+            means = residuals + batch.pos.reshape(-1, num_points, 3)
+
+            # converting logits to probabilities
+            probs = torch.softmax(logits, dim=1)
+
+            return {
+                "probs": probs,
+                "means": means,
+                "vars": vars,
+            }
+    
+    if cfg.use_gmm:
+        # gmm can only be used with oracle models
+        if not cfg.model.oracle and not cfg.model.tax3dv2:
+            raise ValueError("GMM can only be used with oracle models or TAX3Dv2 models.")
+        
+        # cannot predict and diffuse reference frame together
+        if cfg.model.diffuse_ref_frame and not cfg.model.tax3dv2:
+            raise ValueError("Cannot only predict and diffuse reference frame together for TAX3Dv2.")
+
+        import torch_geometric.data as tgd
+        import os
+
+        ref_frame_predictor = FramePredictorDGCNN(5)
+        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/checkpoints/")
+        gmm_ckpt = torch.load(checkpoint_dir + "model_1000.pt", map_location=device)
+
+        ref_frame_predictor.load_state_dict(gmm_ckpt)
+        ref_frame_predictor.eval()
+        ref_frame_predictor.to(device)
+
+        # update the dataset_cfg if needed
+        cfg.dataset.oracle = False
+        cfg.model.oracle = False
+
+    ######################################################################
     # Create the datamodule. This is just to initialize the datasets - we are
     # not going to use the dataloaders, because we need to manually downsample 
     # and batch.
@@ -113,7 +189,28 @@ def main(cfg):
         api = wandb.Api()
         artifact_dir = cfg.wandb.artifact_dir
         artifact = api.artifact(checkpoint_reference, type="model")
-        ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+
+        if cfg.checkpoint.alias == "v0":
+            model_name = "model.ckpt"
+        elif cfg.checkpoint.alias == "monitor":
+            # getting artifact names, and sanity checking monitor name
+            artifact_file_names = [f.name for f in artifact.files()]
+            monitor_name = cfg.checkpoint.monitor_name
+            if not isinstance(monitor_name, str):
+                raise ValueError(f"Invalid monitor name: {monitor_name}. Must be a string.")
+            
+            # searching for checkpoints with exact monitor name - should only be one for now.
+            valid_artifact_file_names = [f for f in artifact_file_names if 
+                                         f.split("-")[2].split("=")[0] == monitor_name]
+            if len(valid_artifact_file_names) == 0:
+                raise ValueError(f"Could not find any files with monitor name: {monitor_name}.")
+            elif len(valid_artifact_file_names) > 1:
+                raise ValueError(f"Found multiple files with monitor name: {monitor_name}.")
+            else:
+                model_name = valid_artifact_file_names[0]
+        else:
+            raise ValueError(f"Invalid checkpoint alias: {cfg.checkpoint.alias}.")
+        ckpt_file = artifact.get_path(model_name).download(root=artifact_dir)
     else:
         ckpt_file = checkpoint_reference
     # Load the network weights.
@@ -122,11 +219,11 @@ def main(cfg):
     network.load_state_dict(
         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("network.")}
     )
-    # TODO: hacky bugfix for load weights for ref frame predictor; probably need module-specific load function
-    if cfg.model.predict_ref_frame:
-        model.ref_frame_predictor.load_state_dict(
-            {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("ref_frame_predictor.")}
-        )
+    # # TODO: hacky bugfix for load weights for ref frame predictor; probably need module-specific load function
+    # if cfg.model.predict_ref_frame:
+    #     model.ref_frame_predictor.load_state_dict(
+    #         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("ref_frame_predictor.")}
+    #     )
     # set model to eval mode
     network.eval()
     model.eval()
@@ -138,12 +235,15 @@ def main(cfg):
         num_samples = cfg.inference.num_wta_trials # // bs
         num_batches = len(dataset) // bs
         eval_keys = ["pc_action", "pc_anchor", "pc", "flow", "seg", "seg_anchor", "T_action2world", "T_goal2world"]
+        if cfg.model.diffuse_ref_frame:
+            eval_keys.append("goal_origin")
         if cfg.model.rel_pose:
             eval_keys.append("rel_pose")
             
         rmse = []
         coverage = []
         precision = []
+        # probabilities = []
 
 
         for i in tqdm(range(num_batches)):
@@ -166,10 +266,37 @@ def main(cfg):
             batch = {key: torch.stack([item[key] for item in batch_list]) for key in eval_keys}
 
             # generate predictions
-            pred_dict = model.predict(batch, num_samples, progress=False)
+            if cfg.use_gmm:
+                # expand action and anchor point clouds
+                gmm_action = expand_pcd(batch["pc_action"], num_samples)
+                gmm_anchor = expand_pcd(batch["pc_anchor"], num_samples)
+                gmm_batch = tgd.Batch.from_data_list([
+                    tgd.Data(pos=gmm_anchor[i]) for i in range(bs * num_samples)
+                ]).to(device)
+
+                # sample reference frames for WTA
+                gmm_pred = ref_frame_predictor(gmm_batch)
+                gmm_probs, gmm_means = gmm_pred["probs"], gmm_pred["means"]
+                idxs = torch.multinomial(gmm_probs.squeeze(-1), 1).squeeze()
+                sampled_ref_frames = gmm_means[torch.arange(bs * num_samples), idxs].unsqueeze(-2)
+                sampled_ref_frames = sampled_ref_frames.cpu()
+
+                # manually update batch with expanded point clouds, and predict
+                batch["pc_action"] = gmm_action
+                batch["pc_anchor"] = gmm_anchor - sampled_ref_frames
+                if cfg.model.rel_pose:
+                    batch["rel_pose"] = expand_pcd(batch["rel_pose"], num_samples)
+                pred_dict = model.predict(batch, num_samples=1, progress=False, full_prediction=False)
+            else:
+                pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=False)
+            # pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=False)
             pred_pc = pred_dict["point"]["pred"]
-            # pc = batch["pc"].to(device)
-            # seg = batch["seg"].to(device)
+
+            # if diffusing reference frame, update prediction
+            if cfg.model.diffuse_ref_frame:
+                gt_ref_frame = batch["goal_origin"].unsqueeze(-2).to(device)
+                pred_ref_frame = pred_dict["ref_frame"]
+                pred_pc = pred_pc + pred_ref_frame
 
             batch_rmse = torch.zeros(bs, cfg.inference.num_wta_trials * bs)
 
@@ -179,6 +306,15 @@ def main(cfg):
                 seg = batch["seg"][j].unsqueeze(0).to(device)
                 gt_pc = expand_pcd(gt_pc, num_samples * bs)
                 seg = expand_pcd(seg, num_samples * bs)
+
+                # if predicting reference frame, update ground truth
+                if cfg.use_gmm:
+                    gt_pc = gt_pc - sampled_ref_frames.to(device)
+
+                # if diffusing reference frame, update ground truth
+                if cfg.model.diffuse_ref_frame:
+                    gt_pc = gt_pc + expand_pcd(gt_ref_frame[j].unsqueeze(0), num_samples * bs)
+
                 seg = seg == 0
                 batch_rmse[j] = flow_rmse(pred_pc, gt_pc, mask=True, seg=seg)
 

@@ -2,12 +2,194 @@ import rpad.visualize_3d.plots as rvpl
 import gif
 import numpy as np
 import plotly.graph_objects as go
+import plotly.colors as pc
 import rpad.visualize_3d.primitives as rvpr
 import torch
 
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from PIL import Image
+
+
+
+def visualize_sampled_predictions(ground_truth, context, predictions):
+    """
+    Helper function to visualize sampled point cloud predictions.
+    Args:
+        ground_truth: ndarray of shape (..., 3)
+        context: Dict of ndarrays of shape (:, 3). Key is name of context, value is context points.
+        predictions: ndarray of shape (:, :, 3)
+    """
+    fig = go.Figure()
+    traces = []
+    
+    # Colormap.
+    colors = np.array(pc.qualitative.Alphabet)
+
+    # Plot ground truth.
+    if ground_truth is not None:
+        ground_truth_points = ground_truth.reshape(-1, 3)
+        traces.append(
+            go.Scatter3d(
+                mode="markers",
+                x=ground_truth_points[:, 0],
+                y=ground_truth_points[:, 1],
+                z=ground_truth_points[:, 2],
+                marker={"size": 5, "color": "black", "line": {"width": 0}, "symbol": "diamond"},
+                name="Ground Truth",
+            )
+        )
+
+    # Plot context.
+    color_counter = 0
+    for context_name, context_points in context.items():
+        traces.append(
+            go.Scatter3d(
+                mode="markers",
+                x=context_points[:, 0],
+                y=context_points[:, 1],
+                z=context_points[:, 2],
+                marker={"size": 3, "color": colors[color_counter], "line": {"width": 0}},
+                name=context_name,
+            )
+        )
+        color_counter += 1
+
+    # Plot predictions.
+    for i, prediction_points in enumerate(predictions):
+        traces.append(
+            go.Scatter3d(
+                mode="markers",
+                x=prediction_points[:, 0],
+                y=prediction_points[:, 1],
+                z=prediction_points[:, 2],
+                marker={"size": 3, "color": colors[i + color_counter], "line": {"width": 0}},
+                name=f"Prediction {i + 1}",
+            )
+        )
+    
+    fig.add_traces(traces)
+    fig.update_layout(
+        scene=rvpl._3d_scene(np.concatenate([
+            ground_truth.reshape(-1, 3), *context.values(), predictions.reshape(-1, 3)])),
+        showlegend=True,
+    )
+    fig.update_scenes(
+        xaxis_visible=False, yaxis_visible=False, zaxis_visible=False
+    )
+    return fig
+
+
+def visualize_diffusion_timelapse(context, results):
+    """
+    Helper function to visualize diffusion timelapse for a single prediction.
+    Args:
+        context: Dict of ndarrays of shape (:, 3). Key is name of context, value is context points.
+        results: List of ndarrays of shape (:, 3). Each element is a diffusion results, converted to the scene frame.
+    """
+    # TODO: this could as take pc_action as input to get color scale for diffusion.
+    # Colormap.
+    colors = np.array(pc.qualitative.Alphabet)
+
+    # Creating all frame traces. traces[i] is a list of traces for frame i.
+    traces = []
+    num_frames = len(results)
+    for result_step in results:
+        frame_traces = []
+
+        # Plotting context points.
+        for i, (context_name, context_points) in enumerate(context.items()):
+            frame_traces.append(
+                go.Scatter3d(
+                    mode="markers",
+                    x=context_points[:, 0],
+                    y=context_points[:, 1],
+                    z=context_points[:, 2],
+                    marker={"size": 4, "color": colors[i + 1], "line": {"width": 0}},
+                    name=context_name,
+                )
+            )
+        
+        # Plot timestep points.
+        frame_traces.append(
+            go.Scatter3d(
+                mode="markers",
+                x=result_step[:, 0],
+                y=result_step[:, 1],
+                z=result_step[:, 2],
+                marker={"size": 4, "color": "red", "line": {"width": 0}},
+                name="Diffusion",
+                showlegend=False,
+            )
+        )
+        traces.append(frame_traces)
+
+    # Create figure.
+    fig = go.Figure(
+        frames=[
+            go.Frame(data=traces[i], name=str(i)) for i in range(num_frames)
+        ]
+    )
+    fig.add_traces(traces[0])
+
+    # Helper function for frame args.
+    def frame_args(duration):
+        return {
+            "frame": {"duration": duration},
+            "mode": "immediate",
+            "fromcurrent": True,
+            "transition": {"duration": duration, "easing": "sin"},
+        }
+
+    fig.update_layout(
+        title="Diffusion Timelapse",
+        scene=rvpl._3d_scene(np.concatenate([*context.values(), *results])),
+        updatemenus=[
+            {
+                "buttons": [
+                    {
+                        "args": [None, frame_args(25)],
+                        "label": "&#9654;",  # play symbol
+                        "method": "animate",
+                    },
+                    {
+                        "args": [[None], frame_args(0)],
+                        "label": "&#9724;",  # pause symbol
+                        "method": "animate",
+                    },
+                ],
+                "direction": "left",
+                "pad": {"r": 10, "t": 70},
+                "type": "buttons",
+                "x": 0.1,
+                "y": 0,
+            },
+        ],
+        sliders=[
+            {
+                "pad": {"b": 10, "t": 60},
+                "len": 0.9,
+                "x": 0.1,
+                "y": 0,
+                "steps": [
+                    {
+                        "args": [[f.name], frame_args(0)],
+                        "label": str(k),
+                        "method": "animate",
+                    }
+                    for k, f in enumerate(fig.frames)
+                ],
+            }
+        ]
+    )
+    fig.update_scenes(
+        xaxis_visible=False, yaxis_visible=False, zaxis_visible=False
+    )
+    return fig
+
+
+
+
 
 class FlowNetAnimation:
     def __init__(self):

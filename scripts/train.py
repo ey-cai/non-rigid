@@ -180,6 +180,15 @@ def main(cfg):
                 ),
                 ModelCheckpoint(
                     dirpath=cfg.lightning.checkpoint_dir,
+                    filename="{epoch}-{step}-{val_rmse_0:.3f}",
+                    monitor="val_rmse_0",
+                    mode="min",
+                    save_weights_only=False,
+                    save_last=False,
+                    # auto_insert_metric_name=False,
+                ),
+                ModelCheckpoint(
+                    dirpath=cfg.lightning.checkpoint_dir,
                     filename="{epoch}-{step}-{val_rmse_wta_0:.3f}",
                     monitor="val_rmse_wta_0",
                     mode="min",
@@ -255,7 +264,7 @@ def main(cfg):
     ######################################################################
     # Log additional model checkpoints to wandb.
     ######################################################################
-    monitors = ["val_rmse_wta_0"]
+    monitors = ["val_rmse_wta_0", "val_rmse_0"]
     model_artifact = wandb.Artifact(f"model-{wandb.run.id}", type="model")
     # iterate through each file in checkpoint dir
     for file in os.listdir(cfg.lightning.checkpoint_dir):

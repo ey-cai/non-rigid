@@ -22,8 +22,8 @@ from non_rigid.metrics.flow_metrics import flow_cos_sim, flow_rmse, pc_nn
 from non_rigid.models.dit.diffusion import create_diffusion
 # from non_rigid.models.dit.models import DiT_PointCloud_Unc as DiT_pcu
 from non_rigid.models.dit.models import (
-    DiT_PointCloud_Unc_Cross,
-    Rel3D_DiT_PointCloud_Unc_Cross,
+    # DiT_PointCloud_Unc_Cross,
+    # Rel3D_DiT_PointCloud_Unc_Cross,
     DiT_PointCloud_Cross,
     DiT_PointCloud
 )

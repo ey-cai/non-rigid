@@ -5,6 +5,7 @@ import json
 import omegaconf
 import torch
 import wandb
+from pytorch3d.transforms import Transform3d, Translate
 
 from non_rigid.utils.script_utils import (
     create_model,
@@ -12,8 +13,10 @@ from non_rigid.utils.script_utils import (
     load_checkpoint_config_from_wandb,
 )
 
+from non_rigid.nets.dgcnn import DGCNN
 from non_rigid.metrics.flow_metrics import flow_rmse
 from non_rigid.utils.pointcloud_utils import expand_pcd
+from non_rigid.utils.vis_utils import visualize_sampled_predictions, visualize_diffusion_timelapse
 from tqdm import tqdm
 import numpy as np
 
@@ -90,6 +93,80 @@ def main(cfg):
     # cfg.dataset.sample_size_anchor = -1
 
     ######################################################################
+    # Load the reference frame predictor, if necessary.
+    ######################################################################
+    class FramePredictorDGCNN(torch.nn.Module):
+        def __init__(self, out_channels):
+            super(FramePredictorDGCNN, self).__init__()
+            self.out_channels = out_channels
+            self.dgcnn = DGCNN(emb_dims=512)
+            self.final = torch.nn.Conv1d(
+                in_channels=512,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=True,
+            )
+
+        def forward(self, batch):
+            # make sure all of the point clouds in the batch have the same number of points
+            ptr_diffs = torch.unique(batch.ptr[1:] - batch.ptr[:-1])
+            if len(ptr_diffs) > 1:
+                raise ValueError("All point clouds in the batch must have the same number of points.")
+            else:
+                num_points = ptr_diffs.item()
+            
+            input = batch.pos.reshape(-1, num_points, 3).permute(0, 2, 1)
+            output = self.dgcnn(input)
+            output = self.final(output)
+            # reshape output to get (B, N, C) shape
+            output = output.permute(0, 2, 1)
+
+            logits = output[..., [0]]
+            residuals = output[..., 1:4]
+            vars = output[..., 4:]
+
+            # run vars through softplus to ensure positive values
+            vars = torch.nn.functional.softplus(vars)
+
+            # add mean residuals to points to get mean predictions
+            means = residuals + batch.pos.reshape(-1, num_points, 3)
+
+            # converting logits to probabilities
+            probs = torch.softmax(logits, dim=1)
+
+            return {
+                "probs": probs,
+                "means": means,
+                "vars": vars,
+            }
+    
+    if cfg.use_gmm:
+        # gmm can only be used with oracle models
+        if not cfg.model.oracle:
+            raise ValueError("GMM can only be used with oracle models.")
+        
+        # cannot predict and diffuse reference frame together
+        if cfg.model.diffuse_ref_frame:
+            raise ValueError("Cannot predict and diffuse reference frame together.")
+
+        import torch_geometric.data as tgd
+        import os
+
+        ref_frame_predictor = FramePredictorDGCNN(5)
+        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/checkpoints/")
+        gmm_ckpt = torch.load(checkpoint_dir + "model_1000.pt", map_location=device)
+
+        ref_frame_predictor.load_state_dict(gmm_ckpt)
+        ref_frame_predictor.eval()
+        ref_frame_predictor.to(device)
+
+        # update the dataset_cfg if needed
+        cfg.dataset.oracle = False
+        cfg.model.oracle = False
+
+    ######################################################################
     # Create the datamodule. This is just to initialize the datasets - we are
     # not going to use the dataloaders, because we need to manually downsample 
     # and batch.
@@ -114,7 +191,28 @@ def main(cfg):
         api = wandb.Api()
         artifact_dir = cfg.wandb.artifact_dir
         artifact = api.artifact(checkpoint_reference, type="model")
-        ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+
+        if cfg.checkpoint.alias == "v0":
+            model_name = "model.ckpt"
+        elif cfg.checkpoint.alias == "monitor":
+            # getting artifact names, and sanity checking monitor name
+            artifact_file_names = [f.name for f in artifact.files()]
+            monitor_name = cfg.checkpoint.monitor_name
+            if not isinstance(monitor_name, str):
+                raise ValueError(f"Invalid monitor name: {monitor_name}. Must be a string.")
+            
+            # searching for checkpoints with exact monitor name - should only be one for now.
+            valid_artifact_file_names = [f for f in artifact_file_names if 
+                                         f.split("-")[2].split("=")[0] == monitor_name]
+            if len(valid_artifact_file_names) == 0:
+                raise ValueError(f"Could not find any files with monitor name: {monitor_name}.")
+            elif len(valid_artifact_file_names) > 1:
+                raise ValueError(f"Found multiple files with monitor name: {monitor_name}.")
+            else:
+                model_name = valid_artifact_file_names[0]
+        else:
+            raise ValueError(f"Invalid checkpoint alias: {cfg.checkpoint.alias}.")
+        ckpt_file = artifact.get_path(model_name).download(root=artifact_dir)
     else:
         ckpt_file = checkpoint_reference
     # Load the network weights.
@@ -123,11 +221,11 @@ def main(cfg):
     network.load_state_dict(
         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("network.")}
     )
-    # TODO: hacky bugfix for load weights for ref frame predictor; probably need module-specific load function
-    if cfg.model.predict_ref_frame:
-        model.ref_frame_predictor.load_state_dict(
-            {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("ref_frame_predictor.")}
-        )
+    # # TODO: hacky bugfix for load weights for ref frame predictor; probably need module-specific load function
+    # if cfg.model.predict_ref_frame:
+    #     model.ref_frame_predictor.load_state_dict(
+    #         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("ref_frame_predictor.")}
+    #     )
     # set model to eval mode
     network.eval()
     model.eval()
@@ -138,110 +236,99 @@ def main(cfg):
     def run_vis(dataset, model, indices):
         num_samples = cfg.inference.num_wta_trials
         eval_keys = ["pc_action", "pc_anchor", "pc", "flow", "seg", "seg_anchor", "T_action2world", "T_goal2world"]
+        if cfg.model.diffuse_ref_frame:
+            eval_keys.append("goal_origin")
         if cfg.model.rel_pose:
             eval_keys.append("rel_pose")
-        predict_ref_frame = cfg.model.predict_ref_frame
 
         for i in tqdm(indices):
-            # index item, and batchify
+            # Index and batchify item.
             item = dataset[i]
             batch = [{key: item[key] for key in eval_keys}]
             batch = {key: torch.stack([item[key] for item in batch]) for key in eval_keys}
 
-            # predict
-            pred_dict = model.predict(batch, num_samples, progress=False)
-            # TODO: PUT EVERYTHING BACK IN THE WORLD FRAME?
+            # Generate predictions.
+            if cfg.use_gmm:
+                # expand action and anchor point clouds
+                gmm_pc = expand_pcd(batch["pc"], num_samples)
+                gmm_action = expand_pcd(batch["pc_action"], num_samples)
+                gmm_anchor = expand_pcd(batch["pc_anchor"], num_samples)
+                gmm_batch = tgd.Batch.from_data_list([
+                    tgd.Data(pos=gmm_anchor[i]) for i in range(num_samples)
+                ]).to(device)
 
-            # get point clouds
-            pred_pc = pred_dict["point"]["pred"].cpu().numpy()
-            anchor_pc = batch["pc_anchor"].squeeze().cpu().numpy()
-            action_pc = batch["pc_action"].squeeze().cpu().numpy()
-            gt_pc = batch["pc"].squeeze().cpu().numpy()
-            if predict_ref_frame:
-                pred_ref_frame = pred_dict["ref_frame"].cpu().numpy()
+                # sample reference frames
+                gmm_pred = ref_frame_predictor(gmm_batch)
+                gmm_probs, gmm_means = gmm_pred["probs"], gmm_pred["means"]
+                idxs = torch.multinomial(gmm_probs.squeeze(-1), 1).squeeze()
+                sampled_ref_frames = gmm_means[torch.arange(num_samples), idxs].unsqueeze(-2)
+                sampled_ref_frames = sampled_ref_frames.cpu()
 
-            # get segmentations
-            pred_seg = np.arange(3, 3 + num_samples).reshape(-1, 1).repeat(pred_pc.shape[1], axis=-1)
-            anchor_seg = np.zeros(anchor_pc.shape[0])
-            action_seg = np.ones(action_pc.shape[0])
-            gt_seg = np.ones(gt_pc.shape[0]) * 2
+                # manually update batch with expanded point clouds, and predict
+                batch["pc"] = gmm_pc - sampled_ref_frames
+                batch["pc_action"] = gmm_action
+                batch["pc_anchor"] = gmm_anchor - sampled_ref_frames
+                batch["T_action2world"] = expand_pcd(batch["T_action2world"], num_samples)
+                batch["T_goal2world"] = Translate(sampled_ref_frames.squeeze()).compose(
+                    Transform3d(
+                        matrix=expand_pcd(batch["T_goal2world"], num_samples)
+                    )
+                ).get_matrix()
+                if cfg.model.rel_pose:
+                    batch["rel_pose"] = expand_pcd(batch["rel_pose"], num_samples)
+                pred_dict = model.predict(batch, num_samples=1, progress=False, full_prediction=True)
+            else:
+                pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=True)
 
-            # visualize point cloud predictions
-            pred_pc = np.concatenate(pred_pc, axis=0)
-            pred_seg = np.concatenate(pred_seg, axis=0)
-            fig = vpl.segmentation_fig(
-                np.concatenate([
-                    pred_pc,
-                    anchor_pc,
-                    action_pc,
-                    gt_pc,
-                ]),
-                np.concatenate([
-                    pred_seg,
-                    anchor_seg,
-                    action_seg,
-                    gt_seg,
-                ]).astype(int),
+            # Get point clouds in world coordinates.
+            pred_pc_world = pred_dict["point"]["pred_world"].cpu().numpy()
+            gt_pc_world = Transform3d(
+                matrix=batch["T_goal2world"]
+            ).transform_points(batch["pc"]).squeeze().cpu().numpy()
+            action_pc_world = Transform3d(
+                matrix=batch["T_action2world"]
+            ).transform_points(batch["pc_action"]).squeeze().cpu().numpy()
+            anchor_pc_world = Transform3d(
+                matrix=batch["T_goal2world"]
+            ).transform_points(batch["pc_anchor"]).squeeze().cpu().numpy()
+
+            # If predicting reference frame, invert point cloud expansion for action and anchor.
+            if cfg.use_gmm:
+                gt_pc_world = gt_pc_world[0]
+                action_pc_world = action_pc_world[0]
+                anchor_pc_world = anchor_pc_world[0]
+            
+            # If diffusing reference frame, update ground truth with goal origin.
+            if cfg.model.diffuse_ref_frame:
+                gt_pc_world += batch["goal_origin"].cpu().numpy()
+
+            # visualize sampled predictions
+            fig = visualize_sampled_predictions(
+                ground_truth = gt_pc_world,
+                context = {
+                    "Action": action_pc_world,
+                    "Anchor": anchor_pc_world,
+                },
+                predictions = pred_pc_world,
             )
-            # add in reference frame predictions, if necessary
-            if predict_ref_frame:
-                ref_frame_trace = go.Scatter3d(
-                    x=pred_ref_frame[:, 0],
-                    y=pred_ref_frame[:, 1],
-                    z=pred_ref_frame[:, 2],
-                    mode="markers",
-                    marker={"size": 30, "color": np.arange(3, 3 + num_samples)},
-                    scene="scene",
-                    showlegend=True,
-                )
-                fig.add_trace(ref_frame_trace)
             fig.show()
 
-
-            # visualize per-point weights and residuals, if necessary
-            if predict_ref_frame:
-                # need anchor point cloud, and also output from ref frame predictor
-
-                # grab logits and residuals (only need the first sample, since all have the same anchor)
-                logit_residuals = pred_dict["logit_residuals"][0]
-                logits = logit_residuals[:, 0]
-                residuals = logit_residuals[:, 1:].cpu().numpy()
-                probs = torch.nn.functional.softmax(logits, dim=0).detach().cpu().numpy()
-
-                fig = go.Figure()
-                fig.add_trace(
-                    go.Scatter3d(
-                        mode="markers",
-                        marker={
-                            "size": 5,
-                            "color": probs,
-                            "colorscale": "Inferno",
-                            "colorbar": dict(title="Logits"),
-                        },
-                        x=anchor_pc[:, 0],
-                        y=anchor_pc[:, 1],
-                        z=anchor_pc[:, 2],
-                    ),
-                )
-
-                traces = vpl._flow_traces(
-                    start=anchor_pc,
-                    flows=residuals,
-                    flowscale=1.0,
-                    flowcolor=probs,
-                )
-                # just add the lines trace
-                fig.add_trace(traces[0])
-
-                fig.show()
-                breakpoint()
-                pass
+            # visualize diffusion timelapse
+            results = [res[0].cpu().numpy() for res in pred_dict["results_world"]]
+            fig = visualize_diffusion_timelapse(
+                context = {
+                    "Action": action_pc_world,
+                    "Anchor": anchor_pc_world,
+                },
+                results = results,
+            )
+            fig.show()
 
     ######################################################################
     # Run the model on the train/val/test sets.
     ######################################################################
-    train_indices = [0, 1, 2, 3, 4]
-    val_indices = []
+    train_indices = []
+    val_indices = [0]
     val_ood_indices = []
     model.to(device)
     run_vis(datamodule.train_dataset, model, train_indices)

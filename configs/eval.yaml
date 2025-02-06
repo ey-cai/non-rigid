@@ -21,21 +21,16 @@ defaults:
 
 seed: 42
 task_type: None # Set during eval loop based on dataset.
-splits:
-  - train_1
-  - val_1
-  - val_ood_1
-
-coverage: False
-precision: False
-viz: False
+use_gmm: False
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
 # like if you want multiple checkpoints simultaneously, etc.
 checkpoint:
   # If we want to load a model for a specific run, we can change that here.
   run_id: ???
-  reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
+  alias: v0 # (v0, monitor); v0 is the last checkpoint, monitor is best monitor-specific checkpoint
+  monitor_name: null
+  reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:${checkpoint.alias}
 
 resources:
   num_workers: 4

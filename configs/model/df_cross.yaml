@@ -5,7 +5,7 @@ type: point # (flow, point) Type of model
 size: xS # (xs, s, ...) Architecture of DiT
 in_channels: 3 # Number of input channels
 learn_sigma: True # Learn sigma for diffusion
-center_noise: False # Center noise for diffusion
+center_noise: False # Center noise for diffusion # TODO: get rid of this one
 rotary: False # Use rotary embedding for diffusion
 
 # Model-based data processing params
@@ -16,6 +16,11 @@ rel_pose_type: translation # (quaternion, rotation_6d, logmap, translation) repr
 center_type: anchor_center # [action_center, anchor_center, scene_center, none], centers the point clouds
 action_context_center_type: center # [center, random, none], centers the action context point clouds
 predict_ref_frame: False # Predict reference frame for anchor point cloud
+diffuse_ref_frame: False # Diffuse reference frame for anchor point cloud
+oracle: False # if True, use action goal centroid
+noisy_goal_origin: False # if True, add noise to the goal frame origin
+extra_features: False # if True, adding extra contextual features to the model
+# TODO: scale action, but needs to handle logic differently for the two models
 
 # Encoder settings
 x_encoder: mlp # Encoder current timestep x
@@ -28,3 +33,9 @@ diff_inference_steps: 100 # Number of diffusion steps during inference
 diff_noise_schedule: linear # (linear, cosine) Noise schedule for diffusion
 diff_noise_scale: 1.0 # Scale of noise for diffusion
 diff_type: gaussian
+
+# Dummy config for tax3dv2.
+tax3dv2: False
+
+# TAX3DV2 configs.
+center_query: False
