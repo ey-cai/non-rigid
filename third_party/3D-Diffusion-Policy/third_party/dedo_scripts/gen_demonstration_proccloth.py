@@ -12,6 +12,7 @@ from termcolor import cprint
 from dedo.utils.args import get_args, args_postprocess
 from PIL import Image
 
+from non_rigid.utils.pointcloud_utils import downsample_pcd
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -91,9 +92,9 @@ if __name__ == '__main__':
         f'anchor={anchor_geometry}-{anchor_pose} ' + \
         f'hole={cloth_hole}{tag} ' + \
         f'robot={use_robot_env} ' + \
-        f'num_anchors={num_anchors}'
-        # f'num_anchors={num_anchors} ' + \
-        # 'debug'
+        # f'num_anchors={num_anchors}'
+        f'num_anchors={num_anchors} ' + \
+        'debug'
     )
 
     # creating directories
@@ -254,21 +255,22 @@ if __name__ == '__main__':
                         rigid_data=rigid_data,
                     )
 
+                    # also downsampling tax3d demo - temporary debugging code for reference frame prediction
+                    anchor_pc_tax3d = torch.tensor(obs['anchor_pcd'])
+                    anchor_seg_tax3d = obs['anchor_seg']
+                    anchor_pc_tax3d, anchor_indices = downsample_pcd(anchor_pc_tax3d.unsqueeze(0), 1024, "fps")
+                    anchor_pc_tax3d = anchor_pc_tax3d.squeeze(0).numpy()
+                    anchor_seg_tax3d = anchor_seg_tax3d[anchor_indices.squeeze(0).numpy()]
+
+
                     # initializing tax3d demo
                     tax3d_demo = {
                         'action_pc': obs['action_pcd'],
-                        # 'action_seg': np.ones(obs['action_pcd'].shape[0]),
                         'action_seg': obs['action_seg'],
-                        'anchor_pc': obs['anchor_pcd'],
-                        # 'anchor_seg': np.ones(obs['anchor_pcd'].shape[0]),
-                        'anchor_seg': obs['anchor_seg'],
-                        # 'deform_transform': deform_transform,
-                        # TODO: this needs to udpated to have info for multiple anchors
-                        # 'rigid_transform': rigid_transform,
-                        # 'deform_params': deform_params,
-                        # 'rigid_params': rigid_params,
-                        # 'deform_texture_path': deform_params.get('texture_path', None),
-                        # 'rigid_texture_path': rigid_params.get('texture_path', None),
+                        # 'anchor_pc': obs['anchor_pcd'],
+                        # 'anchor_seg': obs['anchor_seg'],
+                        'anchor_pc': anchor_pc_tax3d,
+                        'anchor_seg': anchor_seg_tax3d,
                         'deform_data': deform_data,
                         'rigid_data': rigid_data,
                     }
