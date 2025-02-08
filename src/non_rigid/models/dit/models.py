@@ -1146,9 +1146,20 @@ class PointCloudDiT2(nn.Module):
         self.model_cfg = model_cfg
         self.diffuse_ref_frame = model_cfg.diffuse_ref_frame
 
+        # TODO: this is hacked in for now because of config overload, reorganize later
+        if self.model_cfg.center_query and self.model_cfg.extra_features:
+            raise ValueError("Center query and extra features cannot be used together.")
         # Query and context encoder. (Output is hidden_size - 1 to allow for query mask.)
-        self.query_input_dim = 12 if self.model_cfg.center_query else 6
-        self.context_input_dim = 3
+        if self.model_cfg.center_query:
+            self.query_input_dim = 12
+            self.context_input_dim = 3
+        elif self.model_cfg.extra_features:
+            self.query_input_dim = 15
+            self.context_input_dim = 3 # TODO: maybe add features here in the future
+        else:
+            self.query_input_dim = 6
+            self.context_input_dim = 3
+
         self.query_encoder = nn.Conv1d(
             self.query_input_dim,
             hidden_size - 1,
@@ -1228,6 +1239,7 @@ class PointCloudDiT2(nn.Module):
             t: torch.Tensor,
             y: torch.Tensor,
             q: int,
+            ref_frame: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -1235,49 +1247,52 @@ class PointCloudDiT2(nn.Module):
             t (torch.Tensor): (B,) tensor of diffusion timesteps
             y (torch.Tensor): (B, 3, Nq + Nc) tensor of batch scene point clouds
             q (int): Size of spatial query point cloud (not necessarily Nq)
+            ref_frame (Optional[torch.Tensor]): (B, 3, 1) tensor of batch reference frame point clouds to inpaint
         """
         # ensure that all query size aligns with input size
         input_size = q + self.diffuse_ref_frame 
         assert input_size == x.shape[2]
 
-        # # extracting query goal prediction, using reference frame prediction if necessary
-        # if self.diffuse_ref_frame:
-        #     ref_frame_pred = x[:, :, -1:]
-        #     query_goal = x[:, :, :q] + ref_frame_pred
-        # else:
-        #     query_goal = x[:, :, :q]
-
-        # # mask out query and context points
-        # query_points = y[:, :, :q]
-        # context_points = y[:, :, q:]
-
-        # # Encode spatial query and spatial context.
-        # query = self.query_encoder(torch.cat([query_points, query_goal], dim=1))
-        # context = self.context_encoder(context_points)
-
+        ##################################################################
         # Extract and encode spatial query.
+        ##################################################################
         query_points = y[:, :, :q]
         if self.diffuse_ref_frame:
-            ref_frame_pred = x[:, :, -1:]
             query_goal_shape = x[:, :, :q]
-            query_goal = query_goal_shape + ref_frame_pred
+            if ref_frame is not None:
+                query_goal = query_goal_shape + ref_frame
+            else:
+                ref_frame_pred = x[:, :, -1:]
+                query_goal = query_goal_shape + ref_frame_pred
         else:
             query_goal = x[:, :, :q]
             query_goal_shape = query_goal - query_goal.mean(dim=-1, keepdim=True)
+
+        # handling additional query inputs 
         if self.model_cfg.center_query:
             query = self.query_encoder(torch.cat([
-                query_points,
-                query_goal,
-                query_points - query_points.mean(dim=-1, keepdim=True),
-                query_goal_shape,
+                query_points, # initial query in world frame
+                query_goal, # query pred in world frame
+                query_points - query_points.mean(dim=-1, keepdim=True), # initial query in object frame
+                query_goal_shape, # query pred in object frame
             ], dim=1))
+        elif self.model_cfg.extra_features:
+            query = self.query_encoder(torch.cat([
+                query_points, # initial query in world frame
+                query_goal, # query pred in world frame
+                query_points - query_points.mean(dim=-1, keepdim=True), # initial query in object frame
+                query_goal_shape, # query pred in object frame
+                query_goal - query_points, # flow pred in object frame # TODO: this will be wrong if predicting rotations
+        ], dim=1))
         else:
             query = self.query_encoder(torch.cat([
-                query_points, 
-                query_goal
+                query_points, # initial query in world frame
+                query_goal # query pred in world frame
             ], dim=1))
         
+        ##################################################################
         # Extract and encode spatial context.
+        ##################################################################
         context_points = y[:, :, q:]
         context = self.context_encoder(context_points)
 
@@ -1310,9 +1325,9 @@ class PointCloudDiT2(nn.Module):
             if self.learn_sigma:
                 sigmas = torch.sum(weights * context_dense_out[:, 4:, :], dim=-1, keepdim=True)
                 context_out = torch.cat([context_out, sigmas], dim=1)
-            
-            # Concatenate query and context predictions.
-            out = torch.cat([out, context_out], dim=-1)
+
+            # Concatenate query and context predictions. Also return weights and residuals.
+            out = (torch.cat([out, context_out], dim=-1), torch.cat([weights, ref_frame_means], dim=1))
         return out
 
 

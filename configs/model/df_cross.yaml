@@ -20,7 +20,7 @@ diffuse_ref_frame: False # Diffuse reference frame for anchor point cloud
 oracle: False # if True, use action goal centroid
 noisy_goal_origin: False # if True, add noise to the goal frame origin
 extra_features: False # if True, adding extra contextual features to the model
-# TODO: scale action, but needs to handle logic differently for the two models
+normalize_inputs: False # if True, normalize inputs
 
 # Encoder settings
 x_encoder: mlp # Encoder current timestep x
@@ -38,4 +38,4 @@ diff_type: gaussian
 tax3dv2: False
 
 # TAX3DV2 configs.
-center_query: False
+center_query: False # WARNING: this is probably not in use right now (using extra_features instead)

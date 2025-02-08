@@ -147,13 +147,13 @@ def main(cfg):
         
         # cannot predict and diffuse reference frame together
         if cfg.model.diffuse_ref_frame and not cfg.model.tax3dv2:
-            raise ValueError("Cannot only predict and diffuse reference frame together for TAX3Dv2.")
+            raise ValueError("Can only predict and diffuse reference frame together for TAX3Dv2.")
 
         import torch_geometric.data as tgd
         import os
 
         ref_frame_predictor = FramePredictorDGCNN(5)
-        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/checkpoints/")
+        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/gmm_init/checkpoints/")
         gmm_ckpt = torch.load(checkpoint_dir + "model_1000.pt", map_location=device)
 
         ref_frame_predictor.load_state_dict(gmm_ckpt)
@@ -219,11 +219,6 @@ def main(cfg):
     network.load_state_dict(
         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("network.")}
     )
-    # # TODO: hacky bugfix for load weights for ref frame predictor; probably need module-specific load function
-    # if cfg.model.predict_ref_frame:
-    #     model.ref_frame_predictor.load_state_dict(
-    #         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("ref_frame_predictor.")}
-    #     )
     # set model to eval mode
     network.eval()
     model.eval()
@@ -280,16 +275,9 @@ def main(cfg):
                 idxs = torch.multinomial(gmm_probs.squeeze(-1), 1).squeeze()
                 sampled_ref_frames = gmm_means[torch.arange(bs * num_samples), idxs].unsqueeze(-2)
                 sampled_ref_frames = sampled_ref_frames.cpu()
+                batch["ref_frame"] = sampled_ref_frames
 
-                # manually update batch with expanded point clouds, and predict
-                batch["pc_action"] = gmm_action
-                batch["pc_anchor"] = gmm_anchor - sampled_ref_frames
-                if cfg.model.rel_pose:
-                    batch["rel_pose"] = expand_pcd(batch["rel_pose"], num_samples)
-                pred_dict = model.predict(batch, num_samples=1, progress=False, full_prediction=False)
-            else:
-                pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=False)
-            # pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=False)
+            pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=True)
             pred_pc = pred_dict["point"]["pred"]
 
             # if diffusing reference frame, update prediction

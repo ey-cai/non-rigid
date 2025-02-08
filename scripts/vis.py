@@ -144,18 +144,18 @@ def main(cfg):
     
     if cfg.use_gmm:
         # gmm can only be used with oracle models
-        if not cfg.model.oracle:
-            raise ValueError("GMM can only be used with oracle models.")
+        if not cfg.model.oracle and not cfg.model.tax3dv2:
+            raise ValueError("GMM can only be used with oracle models or TAX3Dv2 models.")
         
         # cannot predict and diffuse reference frame together
-        if cfg.model.diffuse_ref_frame:
-            raise ValueError("Cannot predict and diffuse reference frame together.")
+        if cfg.model.diffuse_ref_frame and not cfg.model.tax3dv2:
+            raise ValueError("Can only predict and diffuse reference frame together for TAX3Dv2.")
 
         import torch_geometric.data as tgd
         import os
 
         ref_frame_predictor = FramePredictorDGCNN(5)
-        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/checkpoints/")
+        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/gmm_init/checkpoints/")
         gmm_ckpt = torch.load(checkpoint_dir + "model_1000.pt", map_location=device)
 
         ref_frame_predictor.load_state_dict(gmm_ckpt)
@@ -221,11 +221,6 @@ def main(cfg):
     network.load_state_dict(
         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("network.")}
     )
-    # # TODO: hacky bugfix for load weights for ref frame predictor; probably need module-specific load function
-    # if cfg.model.predict_ref_frame:
-    #     model.ref_frame_predictor.load_state_dict(
-    #         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("ref_frame_predictor.")}
-    #     )
     # set model to eval mode
     network.eval()
     model.eval()
@@ -265,18 +260,22 @@ def main(cfg):
                 sampled_ref_frames = sampled_ref_frames.cpu()
 
                 # manually update batch with expanded point clouds, and predict
-                batch["pc"] = gmm_pc - sampled_ref_frames
-                batch["pc_action"] = gmm_action
-                batch["pc_anchor"] = gmm_anchor - sampled_ref_frames
-                batch["T_action2world"] = expand_pcd(batch["T_action2world"], num_samples)
-                batch["T_goal2world"] = Translate(sampled_ref_frames.squeeze()).compose(
-                    Transform3d(
-                        matrix=expand_pcd(batch["T_goal2world"], num_samples)
-                    )
-                ).get_matrix()
-                if cfg.model.rel_pose:
-                    batch["rel_pose"] = expand_pcd(batch["rel_pose"], num_samples)
-                pred_dict = model.predict(batch, num_samples=1, progress=False, full_prediction=True)
+                if cfg.model.tax3dv2:
+                    batch["ref_frame"] = sampled_ref_frames
+                    pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=True)
+                else:
+                    batch["pc"] = gmm_pc - sampled_ref_frames
+                    batch["pc_action"] = gmm_action
+                    batch["pc_anchor"] = gmm_anchor - sampled_ref_frames
+                    batch["T_action2world"] = expand_pcd(batch["T_action2world"], num_samples)
+                    batch["T_goal2world"] = Translate(sampled_ref_frames.squeeze()).compose(
+                        Transform3d(
+                            matrix=expand_pcd(batch["T_goal2world"], num_samples)
+                        )
+                    ).get_matrix()
+                    if cfg.model.rel_pose:
+                        batch["rel_pose"] = expand_pcd(batch["rel_pose"], num_samples)
+                    pred_dict = model.predict(batch, num_samples=1, progress=False, full_prediction=True)
             else:
                 pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=True)
 
@@ -293,7 +292,7 @@ def main(cfg):
             ).transform_points(batch["pc_anchor"]).squeeze().cpu().numpy()
 
             # If predicting reference frame, invert point cloud expansion for action and anchor.
-            if cfg.use_gmm:
+            if cfg.use_gmm and not cfg.model.tax3dv2:
                 gt_pc_world = gt_pc_world[0]
                 action_pc_world = action_pc_world[0]
                 anchor_pc_world = anchor_pc_world[0]
@@ -314,13 +313,20 @@ def main(cfg):
             fig.show()
 
             # visualize diffusion timelapse
-            results = [res[0].cpu().numpy() for res in pred_dict["results_world"]]
+            VIZ_IDX = 0 # 4
+            results = [res[VIZ_IDX].cpu().numpy() for res in pred_dict["results_world"]]
+            # For TAX3Dv2, also grab logit/residual predictions.
+            if cfg.model.tax3dv2:
+                extras = [ext[VIZ_IDX].cpu().numpy() for ext in pred_dict["extras"]]
+            else:
+                extras = None
             fig = visualize_diffusion_timelapse(
                 context = {
                     "Action": action_pc_world,
                     "Anchor": anchor_pc_world,
                 },
                 results = results,
+                extras = extras,
             )
             fig.show()
 

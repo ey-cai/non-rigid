@@ -174,16 +174,7 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         Forward pass to compute diffusion training loss.
         """
         ground_truth = batch[self.label_key].permute(0, 2, 1) # channel first
-        # if diffusing reference frame, updating ground truth/start point
-        if self.model_cfg.diffuse_ref_frame:
-            ground_truth = torch.cat([ground_truth, batch['goal_origin'].unsqueeze(-1)], dim=-1)
         model_kwargs = self.get_model_kwargs(batch)
-
-        # # predict reference frame, if necessary
-        # if self.ref_frame_predictor is not None:
-        #     model_kwargs, ref_frame, _ = self.update_ref_frame(model_kwargs)
-        #     # updating corresponding ground truth with predicted reference frame
-        #     ground_truth = ground_truth - ref_frame.unsqueeze(-1)
 
         # run diffusion
         # noise = torch.randn_like(ground_truth) * self.noise_scale
@@ -209,14 +200,11 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
             full_prediction: whether to return full prediction (flow and point, goal and world frame)
         """
         bs, sample_size = batch["pc_action"].shape[:2]
-        # if diffusing reference frame, add noise variable for reference frame
-        if self.model_cfg.diffuse_ref_frame:
-            sample_size += 1
         model_kwargs = self.get_model_kwargs(batch, num_samples)
 
         # generating latents and running diffusion
         z = torch.randn(bs * num_samples, 3, sample_size, device=self.device)
-        pred, results = self.diffusion.p_sample_loop(
+        pred, results, _ = self.diffusion.p_sample_loop(
             self.network,
             z.shape,
             z,
@@ -226,28 +214,15 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
             device=self.device,
         )
         pred = pred.permute(0, 2, 1)
-        # splitting prediction if diffusing reference frame
-        if self.model_cfg.diffuse_ref_frame:
-            pred, ref_frame = pred[:, :-1, :], pred[:, -1:, :]
 
         if not full_prediction:
             # only return the prediction type in the goal frame
             pred_dict = {self.prediction_type: {"pred": pred}}
-            if self.model_cfg.diffuse_ref_frame:
-                pred_dict["ref_frame"] = ref_frame
             return pred_dict
         else:
             # return full prediction (flow and point, goal and world frame)
-            if "x0" in model_kwargs:
-                pc_action = model_kwargs["x0"].permute(0, 2, 1)
-            elif "q" in model_kwargs:
-                q = model_kwargs["q"]
-                pc_action = model_kwargs["y"][:, :, :q].permute(0, 2, 1)
+            pc_action = model_kwargs["x0"].permute(0, 2, 1)
             results = [res.permute(0, 2, 1) for res in results]
-            # splitting results if diffusing reference frame
-            if self.model_cfg.diffuse_ref_frame:
-                ref_frame_results = [res[:, -1:, :] for res in results]
-                results = [res[:, :-1, :] for res in results]
 
             # computing flow and point predictions
             if self.prediction_type == "flow":
@@ -273,9 +248,6 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
                 },
                 "results": results,
             }
-            if self.model_cfg.diffuse_ref_frame:
-                pred_dict["ref_frame"] = ref_frame
-                pred_dict["results_ref_frame"] = ref_frame_results
 
             # compute world frame predictions
             pred_flow_world, pred_point_world, results_world = self.get_world_preds(
@@ -305,16 +277,9 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
 
         # generating diffusion predictions
         pred_dict = self.predict(
-            batch, num_samples, unflatten=False, progress=True, full_prediction=True
+            batch, num_samples, unflatten=False, progress=True, full_prediction=False
         )
-        # if diffusing reference frame, update prediction and ground truth
         pred = pred_dict[self.prediction_type]["pred"]
-        if self.model_cfg.diffuse_ref_frame:
-            gt_ref_frame = batch["goal_origin"].to(self.device).unsqueeze(-2)
-            gt_ref_frame = expand_pcd(gt_ref_frame, num_samples)
-            pred_ref_frame = pred_dict["ref_frame"]
-            pred = pred + pred_ref_frame
-            ground_truth = ground_truth + gt_ref_frame
 
         # computing error metrics
         seg = seg == 0
@@ -439,8 +404,6 @@ class DenseDisplacementDiffusionModule(L.LightningModule):
         # logging visualizations
         ####################################################
         self.log_viz_to_wandb(batch, pred_wta_dict, f"val_{dataloader_idx}")
-
-        # TODO: there should be a function here to visualize and log the predicted reference frame
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         """
@@ -605,6 +568,8 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
     def get_model_kwargs(self, batch, num_samples=None):
         pc_action = batch["pc_action"].to(self.device)
         pc_anchor = batch["pc_anchor"].to(self.device)
+        bs = pc_action.shape[0]
+
         if num_samples is not None:
             # expand point clouds if num_samples is provided; used for WTA predictions
             pc_action = expand_pcd(pc_action, num_samples)
@@ -620,6 +585,20 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
             if num_samples is not None:
                 rel_pose = expand_pcd(rel_pose, num_samples)
             model_kwargs["rel_pose"] = rel_pose
+        
+        # handling reference frame inpainting
+        if "ref_frame" in batch:
+            ref_frame = batch["ref_frame"].to(self.device)
+            if num_samples is not None:
+                # either frame is already in correct shape, or it needs to be expanded
+                if ref_frame.shape[0] == bs:
+                    ref_frame = expand_pcd(ref_frame, num_samples)
+                else:
+                    assert ref_frame.shape[0] == bs * num_samples, "Invalid reference frame shape."
+            
+            # re-center anchor based on reference frame
+            model_kwargs["y"] = model_kwargs["y"] - ref_frame.permute(0, 2, 1)
+            model_kwargs["rel_pose"] = model_kwargs["rel_pose"] - ref_frame.squeeze()
         return model_kwargs
     
     def update_ref_frame(self, model_kwargs):
@@ -653,75 +632,6 @@ class CrossDisplacementModule(DenseDisplacementDiffusionModule):
         """
         Get visualization arguments for wandb logging.
         """
-        pc_pos_viz = batch["pc"][viz_idx, :, :3]
-        pc_action_viz = batch["pc_action"][viz_idx, :, :3]
-        pc_anchor_viz = batch["pc_anchor"][viz_idx, :, :3]
-        viz_args = {
-            "pc_pos_viz": pc_pos_viz,
-            "pc_action_viz": pc_action_viz,
-            "pc_anchor_viz": pc_anchor_viz,
-        }
-        return viz_args
-    
-
-class TAX3Dv2Module(DenseDisplacementDiffusionModule):
-    """
-    TAX3Dv2 module. Applies self-attention across spatial query (action) and context (anchor) point clouds.
-    """
-    def __init__(self, network, cfg) -> None:
-        super().__init__(network, cfg)
-    
-    def get_model_kwargs(self, batch, num_samples=None):
-        query = batch["pc_action"].to(self.device)
-        context = batch["pc_anchor"].to(self.device)
-        if num_samples is not None:
-            # expand point clouds if num_samples is provided; used for WTA predictions
-            query = expand_pcd(query, num_samples)
-            context = expand_pcd(context, num_samples)
-        
-        query = query.permute(0, 2, 1) # channel first
-        context = context.permute(0, 2, 1) # channel first
-        # (B, 3, N)
-        q = query.shape[-1]
-        y = torch.cat([query, context], dim=-1)
-        model_kwargs = dict(y=y, q=q)
-        return model_kwargs
-
-    def get_world_preds(self, batch, num_samples, pc_action, pred_dict):
-        """
-        Get world-frame predictions from the given batch and predictions.
-        """
-        T_action2world = Transform3d(
-            matrix=expand_pcd(batch["T_action2world"].to(self.device), num_samples)
-        )
-        T_goal2world = Transform3d(
-            matrix=expand_pcd(batch["T_goal2world"].to(self.device), num_samples)
-        )
-
-        pred_point = pred_dict["point"]["pred"]
-        results = pred_dict["results"]
-        # if diffusing reference frame, add to predictions to put prediction in anchor/goal frame
-        if self.model_cfg.diffuse_ref_frame:
-            pred_point = pred_point + pred_dict["ref_frame"]
-            results = [
-                res + ref_frame for res, ref_frame in zip(results, pred_dict["results_ref_frame"])
-            ]
-
-        # TODO: obvious bugfix here
-        pred_point_world = T_goal2world.transform_points(pred_point)
-        pc_action_world = T_action2world.transform_points(pc_action)
-        pred_flow_world = pred_point_world - pc_action_world
-        results_world = [
-            T_goal2world.transform_points(res) for res in results
-        ]
-        return pred_flow_world, pred_point_world, results_world
-
-    def get_viz_args(self, batch, viz_idx):
-        """
-        Get visualization arguments for wandb logging.
-        """
-        # TODO: if diffusing reference frame, need to update the pc_pos; ground truth should
-        # be in anchor frame
         pc_pos_viz = batch["pc"][viz_idx, :, :3]
         pc_action_viz = batch["pc_action"][viz_idx, :, :3]
         pc_anchor_viz = batch["pc_anchor"][viz_idx, :, :3]

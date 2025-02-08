@@ -80,12 +80,13 @@ def visualize_sampled_predictions(ground_truth, context, predictions):
     return fig
 
 
-def visualize_diffusion_timelapse(context, results):
+def visualize_diffusion_timelapse(context, results, extras=None):
     """
     Helper function to visualize diffusion timelapse for a single prediction.
     Args:
         context: Dict of ndarrays of shape (:, 3). Key is name of context, value is context points.
         results: List of ndarrays of shape (:, 3). Each element is a diffusion results, converted to the scene frame.
+        extras: List of stuff...finalize this later.
     """
     # TODO: this could as take pc_action as input to get color scale for diffusion.
     # Colormap.
@@ -94,18 +95,54 @@ def visualize_diffusion_timelapse(context, results):
     # Creating all frame traces. traces[i] is a list of traces for frame i.
     traces = []
     num_frames = len(results)
-    for result_step in results:
+    for timestep, result_step in enumerate(results):
         frame_traces = []
 
         # Plotting context points.
         for i, (context_name, context_points) in enumerate(context.items()):
+            if context_name == "Anchor" and extras is not None and timestep > 0:
+                # Color anchor points based on predicted logits.
+                context_color = extras[timestep - 1][0] # get logits
+                context_marker_dict = {
+                    "size": 4, 
+                    "color": context_color, 
+                    "colorscale": "Inferno",
+                    "colorbar": {"title": "Context Weights", "x": 0.1},
+                    "line": {"width": 0}}
+
+                # also add the residual predictions as a trace
+                context_residuals = extras[timestep - 1][1:4] # get residuals
+                frame_traces.append(
+                    go.Scatter3d(
+                        mode="markers",
+                        x=context_residuals[0, :],
+                        y=context_residuals[1, :],
+                        z=context_residuals[2, :],
+                        marker={"size": 4, "color": context_color, "colorscale": "Inferno", "line": {"width": 0}, "symbol": "diamond"},
+                        name="Residuals",
+                    )
+                )
+            else:
+                context_marker_dict = {"size": 4, "color": colors[i], "line": {"width": 0}}
+
+                # adding empty residual trace
+                frame_traces.append(
+                    go.Scatter3d(
+                        mode="markers",
+                        x=[],
+                        y=[],
+                        z=[],
+                        name="Residuals",
+                    )
+                )
             frame_traces.append(
                 go.Scatter3d(
                     mode="markers",
                     x=context_points[:, 0],
                     y=context_points[:, 1],
                     z=context_points[:, 2],
-                    marker={"size": 4, "color": colors[i + 1], "line": {"width": 0}},
+                    # marker={"size": 4, "color": colors[i], "line": {"width": 0}},
+                    marker=context_marker_dict,
                     name=context_name,
                 )
             )
@@ -119,7 +156,7 @@ def visualize_diffusion_timelapse(context, results):
                 z=result_step[:, 2],
                 marker={"size": 4, "color": "red", "line": {"width": 0}},
                 name="Diffusion",
-                showlegend=False,
+                # showlegend=False,
             )
         )
         traces.append(frame_traces)
