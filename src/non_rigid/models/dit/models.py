@@ -12,13 +12,17 @@
 import omegaconf
 import torch
 import torch.nn as nn
+import torch_geometric.data as tgd
 import numpy as np
 import math
 from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from typing import Optional
 
 from non_rigid.nets.dgcnn import DGCNN
+from non_rigid.nets.pn2 import PN2Dense, PN2DenseParams
 from non_rigid.models.dit.relative_encoding import RotaryPositionEncoding3D, MultiheadRelativeAttentionWrapper
+
+from functools import partial
 
 torch.set_printoptions(precision=8, sci_mode=True)
 
@@ -857,7 +861,61 @@ class DiT_PointCloud(nn.Module):
         x = self.final_layer(x, t_emb)
         x = torch.transpose(x, -1, -2)
         return x
+
+
+
+def pointwise_mlp(in_channels, out_channels):
+    """
+    Helper function to create pointwise MLP.
+    """
+    return nn.Conv1d(
+        in_channels,
+        out_channels,
+        kernel_size=1,
+        stride=1,
+        padding=0,
+        bias=True,
+    )
+
+def pointnet_encoder(model_cfg, out_channels, in_channels=0):
+    pn_params = PN2DenseParams()
+    if model_cfg.scale_inputs != "none":
+        pn_params.sa1.r, pn_params.sa2.r = 0.2, 0.4
+    else:
+        pn_params.sa1.r, pn_params.sa2.r = 2.4, 4.8
     
+    class PN2DenseWrapper(nn.Module):
+        def __init__(self, in_channels, out_channels, p):
+            super().__init__()
+            self.pn2dense = PN2Dense(in_channels=in_channels, out_channels=out_channels, p=p)
+        
+        def forward(self, x):
+            batch_size, num_channels = x.shape[0], x.shape[1]
+            batch_indices = torch.arange(
+                batch_size, device=x.device
+            ).repeat_interleave(x.shape[2])
+
+            if num_channels == 3:
+                input_batch = tgd.Batch(
+                    pos=x.permute(0, 2, 1).reshape(-1, 3), batch=batch_indices
+                )
+            elif num_channels == 6:
+                input_batch = tgd.Batch(
+                    pos=x[:, :3, :].permute(0, 2, 1).reshape(-1, 3),
+                    x=x[:, 3:, :].permute(0, 2, 1).reshape(-1, 3),
+                    batch=batch_indices,
+                )
+            else:
+                raise ValueError(f"Invalid number of input channels: {num_channels}")
+            
+            output = self.pn2dense(input_batch)
+            output = output.reshape(batch_size, -1, output.shape[-1]).permute(0, 2, 1)
+            return output
+    
+    return PN2DenseWrapper(in_channels=in_channels, out_channels=out_channels, p=pn_params)
+
+
+
 # Custom poitn cloud DiT with cross attention for TAX3D
 class DiT_PointCloud_Cross(nn.Module):
     """
@@ -894,46 +952,23 @@ class DiT_PointCloud_Cross(nn.Module):
         if self.model_cfg.extra_features:
             x_encoder_hidden_dims = x_encoder_hidden_dims // 2
 
-        
-        def pointwise_mlp(in_channels, out_channels):
-            """
-            Helper function to create pointwise MLP.
-            """
-            return nn.Conv1d(
-                in_channels,
-                out_channels,
-                kernel_size=1,
-                stride=1,
-                padding=0,
-                bias=True,
-            )
-
         # Encoder for current timestep x features       
         if self.model_cfg.x_encoder == "mlp":
-            # x_embedder is conv1d layer instead of 2d patch embedder
-            # self.x_embedder = nn.Conv1d(
-            #     in_channels,
-            #     x_encoder_hidden_dims,
-            #     kernel_size=1,
-            #     stride=1,
-            #     padding=0,
-            #     bias=True,
-            # )
             self.x_embedder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
+        elif self.model_cfg.x_encoder == "pn":
+            self.x_embedder = pointnet_encoder(self.model_cfg, x_encoder_hidden_dims)
+        elif self.model_cfg.x_encoder == "dgcnn":
+            self.x_embedder = DGCNN(
+                input_dims=in_channels, emb_dims=x_encoder_hidden_dims
+            )
         else:
             raise ValueError(f"Invalid x_encoder: {self.model_cfg.x_encoder}")
         
         # Encoder for y features
         if self.model_cfg.y_encoder == "mlp":
-            # self.y_embedder = nn.Conv1d(
-            #     in_channels,
-            #     hidden_size,
-            #     kernel_size=1,
-            #     stride=1,
-            #     padding=0,
-            #     bias=True,
-            # )
             self.y_embedder = pointwise_mlp(in_channels, hidden_size)
+        elif self.model_cfg.y_encoder == "pn":
+            self.y_embedder = pointnet_encoder(self.model_cfg, hidden_size)
         elif self.model_cfg.y_encoder == "dgcnn":
             self.y_embedder = DGCNN(
                 input_dims=in_channels, emb_dims=hidden_size
@@ -943,15 +978,9 @@ class DiT_PointCloud_Cross(nn.Module):
 
         # Encoder for x0 features
         if self.model_cfg.x0_encoder == "mlp":
-            # self.x0_embedder = nn.Conv1d(
-            #     in_channels,
-            #     x_encoder_hidden_dims,
-            #     kernel_size=1,
-            #     stride=1,
-            #     padding=0,
-            #     bias=True,
-            # )
             self.x0_embedder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
+        elif self.model_cfg.x0_encoder == "pn":
+            self.x0_embedder = pointnet_encoder(self.model_cfg, x_encoder_hidden_dims)
         elif self.model_cfg.x0_encoder == "dgcnn":
             self.x0_embedder = DGCNN(
                 input_dims=in_channels, emb_dims=x_encoder_hidden_dims
@@ -962,14 +991,31 @@ class DiT_PointCloud_Cross(nn.Module):
             raise ValueError(f"Invalid x0_encoder: {self.model_cfg.x0_encoder}")
         
         # Creating extra feature encoders based on model type
-        if self.model_cfg.extra_features and self.model_cfg.type == "flow":
-            # need a recon encoder and a zeromean encoder
-            self.recon_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
-            self.zeromean_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
-        elif self.model_cfg.extra_features and self.model_cfg.type == "point":
-            # need a zero mean encoder and a flow encoder
-            self.flow_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
-            self.zeromean_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
+        if self.model_cfg.extra_features:
+            # creating encoder function
+            if self.model_cfg.x_encoder == "mlp":
+                encoder_fn = partial(pointwise_mlp, in_channels=in_channels)
+            elif self.model_cfg.x_encoder == "pn":
+                encoder_fn = partial(pointnet_encoder, model_cfg=self.model_cfg)
+            else:
+                raise ValueError(f"Invalid x_encoder: {self.model_cfg.x_encoder}")
+
+            # creating extra feature encoders
+            if self.model_cfg.type == "flow":
+                self.recon_encoder = encoder_fn(out_channels=x_encoder_hidden_dims)
+                self.zeromean_encoder = encoder_fn(out_channels=x_encoder_hidden_dims)
+            elif self.model_cfg.type == "point":
+                self.flow_encoder = encoder_fn(out_channels=x_encoder_hidden_dims)
+                self.zeromean_encoder = encoder_fn(out_channels=x_encoder_hidden_dims)
+
+        # if self.model_cfg.extra_features and self.model_cfg.type == "flow":
+        #     # need a recon encoder and a zeromean encoder
+        #     self.recon_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
+        #     self.zeromean_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
+        # elif self.model_cfg.extra_features and self.model_cfg.type == "point":
+        #     # need a zero mean encoder and a flow encoder
+        #     self.flow_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
+        #     self.zeromean_encoder = pointwise_mlp(in_channels, x_encoder_hidden_dims)
 
         # Timestamp embedding
         self.t_embedder = TimestepEmbedder(hidden_size)
@@ -1004,9 +1050,9 @@ class DiT_PointCloud_Cross(nn.Module):
         self.apply(_basic_init)
 
         # Initialize x_embed like nn.Linear (instead of nn.Conv2d):
-        w = self.x_embedder.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.bias, 0)
+        #w = self.x_embedder.weight.data
+        #nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        #nn.init.constant_(self.x_embedder.bias, 0)
 
         # Initialize timestep embedding MLP:
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
@@ -1104,25 +1150,157 @@ class DiT_PointCloud_Cross(nn.Module):
 
         # final layer
         x = self.final_layer(x, c)
-
-        # # if diffusing reference frame, return output and reference frame shift
-        # if self.model_cfg.diffuse_ref_frame:
-        #     # extracting logits and residuals
-        #     ref_frame_pred = x[:, :, -4:]
-        #     logits = ref_frame_pred[:, :, 0]
-        #     residuals = ref_frame_pred[:, :, 1:]
-
-        #     # computing reference frame shift
-        #     weights = torch.nn.functional.softmax(logits, dim=1)
-        #     ref_frame_shift = torch.sum(weights.unsqueeze(-1) * residuals, dim=1, keepdim=True)
-
-        #     x = x[:, :, :-4]
-        #     return x.permute(0, 2, 1), ref_frame_shift.permute(0, 2, 1)
-        # else:
-        #     return x.permute(0, 2, 1)
         x = x.permute(0, 2, 1)
         return x
 
+
+class DiT_PointCloud_Cross_Joint(nn.Module):
+    """
+    Diffusion Transformer adapted for point cloud inputs. Uses object-centric cross attention.
+    """
+    def __init__(
+            self,
+            in_channels=3,
+            hidden_size=1152,
+            depth=28,
+            num_heads=16,
+            mlp_ratio=4.0,
+            learn_sigma=True,
+            model_cfg=None,
+    ):
+        super().__init__()
+        self.learn_sigma = learn_sigma
+        self.in_channels = in_channels
+        self.out_channels = 6 if learn_sigma else 3
+        self.num_heads = num_heads
+        self.model_cfg = model_cfg
+
+        # get encoder fn
+        if self.model_cfg.x_encoder != self.model_cfg.x0_encoder:
+            raise ValueError("Joint encoder not supported for different x and x0 encoders.")
+        if self.model_cfg.x_encoder != self.model_cfg.y_encoder:
+            raise ValueError("Joint encoder not supported for different x and y encoders.")
+        
+        if self.model_cfg.x_encoder == "mlp":
+            encoder_fn = partial(pointwise_mlp, in_channels=in_channels)
+        elif self.model_cfg.x_encoder == "pn":
+            encoder_fn = partial(pointnet_encoder, model_cfg=self.model_cfg)
+        else:
+            raise ValueError(f"Invalid x_encoder: {self.model_cfg.x_encoder}")
+
+        self.query_encoder = encoder_fn(out_channels=hidden_size)
+        self.context_encoder = encoder_fn(out_channels=hidden_size)
+        # handle extra features, and query mixer
+        if self.model_cfg.extra_features:
+            self.shape_encoder = encoder_fn(in_channels=3, out_channels=hidden_size)
+            self.query_mixer = pointwise_mlp(3 * hidden_size, hidden_size)
+        else:
+            self.query_mixer = pointwise_mlp(2 * hidden_size, hidden_size)
+
+        # Timestamp embedding
+        self.t_embedder = TimestepEmbedder(hidden_size)
+
+        # Relative action-anchor pose embedding, if enabled
+        if self.model_cfg.rel_pose:
+            self.pose_embedder = RelativePoseEmbedder(hidden_size, self.model_cfg.rel_pose_type)
+        else:
+            self.pose_embedder = None
+        
+        # DiT blocks
+        self.blocks = nn.ModuleList(
+            [
+                DiTCrossBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio)
+                for _ in range(depth)
+            ]
+        )
+
+        # functionally setting patch size to 1 for a point cloud
+        self.final_layer = FinalLayer(hidden_size, 1, self.out_channels)
+        self.initialize_weights()
+    
+    def initialize_weights(self):
+        # Initialize transformer layers:
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+        self.apply(_basic_init)
+
+        # Initialize timestep embedding MLP:
+        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
+
+        # Initialize rel pose embedding MLP:
+        if self.pose_embedder is not None:
+            nn.init.normal_(self.pose_embedder.mlp[0].weight, std=0.02)
+            nn.init.normal_(self.pose_embedder.mlp[2].weight, std=0.02)
+
+        # Zero-out adaLN modulation layers in DiT blocks:
+        for block in self.blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+        # Zero-out output layers:
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_layer.linear.weight, 0)
+        nn.init.constant_(self.final_layer.linear.bias, 0)
+    
+    def forward(
+            self,
+            x: torch.Tensor,
+            t: torch.Tensor,
+            y: torch.Tensor,
+            x0: Optional[torch.Tensor] = None,
+            rel_pose: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        
+        if self.model_cfg.type == "flow":
+            x_flow = x
+            x_recon = x + x0
+        elif self.model_cfg.type == "point":
+            x_recon = x
+            x_flow = x - x0
+
+        query_input = x0
+        context_input = torch.cat([x_recon, y], dim=-1)
+        q = query_input.shape[-1]
+
+        query_feature = self.query_encoder(query_input)
+        context_feature = self.context_encoder(context_input)
+        query_context_feature, context_context_feature = context_feature[:, :, :q], context_feature[:, :, q:]
+        
+        if self.model_cfg.extra_features:
+            x_recon_mean = x_recon - torch.mean(x_recon, dim=2, keepdim=True)
+            shape_input = torch.cat([x_recon_mean, x_flow], dim=-2)
+            shape_feature = self.shape_encoder(shape_input)
+
+            query_emb = torch.cat([query_feature, query_context_feature, shape_feature], dim=-2)
+        else:
+            query_emb = torch.cat([query_feature, query_context_feature], dim=-2)
+        context_emb = context_context_feature.permute(0, 2, 1)
+
+        # pass through mixers
+        query_emb = self.query_mixer(query_emb).permute(0, 2, 1)
+
+        # timestep embedding
+        c = self.t_embedder(t)
+
+        # relative pose embedding
+        if self.model_cfg.rel_pose:
+            assert rel_pose is not None, "relative poses must be provided if rel_pose is enabled"
+            rel_pose_emb = self.pose_embedder(rel_pose)
+            c = c + rel_pose_emb
+        
+        # forward pass through DiT blocks
+        for block in self.blocks:
+            emb = block(query_emb, context_emb, c)
+        
+        # final layer
+        out = self.final_layer(emb, c).permute(0, 2, 1)
+        return out
 
 
 class PointCloudDiT2(nn.Module):
@@ -1146,35 +1324,49 @@ class PointCloudDiT2(nn.Module):
         self.model_cfg = model_cfg
         self.diffuse_ref_frame = model_cfg.diffuse_ref_frame
 
+        if not self.diffuse_ref_frame:
+            raise ValueError("Currently only diffusing reference frame for TAX3Dv2")
+
         # TODO: this is hacked in for now because of config overload, reorganize later
         if self.model_cfg.center_query and self.model_cfg.extra_features:
             raise ValueError("Center query and extra features cannot be used together.")
+        
         # Query and context encoder. (Output is hidden_size - 1 to allow for query mask.)
         if self.model_cfg.center_query:
-            self.query_input_dim = 12
-            self.context_input_dim = 3
+            self.num_query_inputs = 4
+            self.num_context_inputs = 2
         elif self.model_cfg.extra_features:
-            self.query_input_dim = 15
-            self.context_input_dim = 3 # TODO: maybe add features here in the future
+            self.num_query_inputs = 5
+            self.num_context_inputs = 2
         else:
-            self.query_input_dim = 6
-            self.context_input_dim = 3
+            self.num_query_inputs = 2
+            self.num_context_inputs = 2
 
-        self.query_encoder = nn.Conv1d(
-            self.query_input_dim,
-            hidden_size - 1,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            bias=True,
+        if self.model_cfg.tax3dv2_encoder == "mlp":
+            encoder_fn = partial(pointwise_mlp, in_channels=3)
+        elif self.model_cfg.tax3dv2_encoder == "pn":
+            encoder_fn = partial(pointnet_encoder, model_cfg=self.model_cfg)
+        else:
+            raise ValueError(f"Invalid tax3dv2_encoder: {self.model_cfg.tax3dv2_encoder}")
+
+        query_hidden_size_base = (hidden_size - 1) // self.num_query_inputs
+        context_hidden_size_base = (hidden_size - 1) // self.num_context_inputs
+        self.query_encoders = nn.ModuleList(
+            [
+                encoder_fn(out_channels=query_hidden_size_base + 1)
+                if qi < (hidden_size - 1) - self.num_query_inputs * query_hidden_size_base
+                else encoder_fn(out_channels=query_hidden_size_base)
+                for qi in range(self.num_query_inputs)
+            ]
         )
-        self.context_encoder = nn.Conv1d(
-            self.context_input_dim,
-            hidden_size - 1,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            bias=True,
+
+        self.context_encoders = nn.ModuleList(
+            [
+                encoder_fn(out_channels=context_hidden_size_base + 1)
+                if ci < (hidden_size - 1) - self.num_context_inputs * context_hidden_size_base
+                else encoder_fn(out_channels=context_hidden_size_base)
+                for ci in range(self.num_context_inputs)
+            ]
         )
 
         # Timestamp embedding.
@@ -1190,7 +1382,14 @@ class PointCloudDiT2(nn.Module):
 
         # Final layers for query and context.
         self.query_final_layer = FinalLayer(hidden_size, 1, self.out_channels)
-        self.context_final_layer = FinalLayer(hidden_size, 1, self.out_channels + 1)
+        if self.model_cfg.context_token:
+            # Learnable context token.
+            self.ref_frame_token = nn.Parameter(torch.randn(1, hidden_size - 1, 1))
+            self.context_final_layer = FinalLayer(hidden_size, 1, self.out_channels)
+        else:
+            # TODO: eventually remove this line, very hacky bugfix to make previous checkpoints work
+            self.ref_frame_token = nn.Parameter(torch.randn(1, 3, 1))
+            self.context_final_layer = FinalLayer(hidden_size, 1, self.out_channels + 1)
 
         self.initialize_weights()
         
@@ -1204,15 +1403,23 @@ class PointCloudDiT2(nn.Module):
 
         self.apply(_basic_init)
 
-        # Initialize query encoder
-        w = self.query_encoder.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.query_encoder.bias, 0)
+        # # Initialize query encoders
+        # for query_encoder in self.query_encoders:
+        #     w = query_encoder.weight.data
+        #     nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        #     nn.init.constant_(query_encoder.bias, 0)
+        # # w = self.query_encoder.weight.data
+        # # nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        # # nn.init.constant_(self.query_encoder.bias, 0)
 
-        # Initialize context encoder
-        w = self.context_encoder.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.context_encoder.bias, 0)
+        # # Initialize context encoder
+        # for context_encoder in self.context_encoders:
+        #     w = context_encoder.weight.data
+        #     nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        #     nn.init.constant_(context_encoder.bias, 0)
+        # # w = self.context_encoder.weight.data
+        # # nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        # # nn.init.constant_(self.context_encoder.bias, 0)
 
         # Initialize timestep embedding MLP:
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
@@ -1240,6 +1447,10 @@ class PointCloudDiT2(nn.Module):
             y: torch.Tensor,
             q: int,
             ref_frame: Optional[torch.Tensor] = None,
+            query_center: Optional[torch.Tensor] = None,
+            query_scale: Optional[torch.Tensor] = None,
+            scene_center: Optional[torch.Tensor] = None,
+            scene_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -1257,44 +1468,122 @@ class PointCloudDiT2(nn.Module):
         # Extract and encode spatial query.
         ##################################################################
         query_points = y[:, :, :q]
-        if self.diffuse_ref_frame:
-            query_goal_shape = x[:, :, :q]
-            if ref_frame is not None:
-                query_goal = query_goal_shape + ref_frame
-            else:
-                ref_frame_pred = x[:, :, -1:]
-                query_goal = query_goal_shape + ref_frame_pred
+
+        # Extracting query point cloud - in normalized query frame and normalized scene frame.
+        if self.model_cfg.scale_inputs != "none":
+            query_points_q = (query_points - query_center) / query_scale
+            query_points_s = (query_points - scene_center) / scene_scale
         else:
-            query_goal = x[:, :, :q]
-            query_goal_shape = query_goal - query_goal.mean(dim=-1, keepdim=True)
+            query_points_q, query_points_s = query_points, query_points
+            query_points_q = query_points_q - query_points_q.mean(dim=-1, keepdim=True)
+
+        # Extracting noisy query prediction - in normalized query frame (shape) and normalized scene frame (query).
+        noisy_query_shape_q = x[:, :, :q]
+        noisy_ref_frame_s = ref_frame if ref_frame is not None else x[:, :, -1:]
+        if self.model_cfg.scale_inputs != "none":
+            noisy_query_shape_s = (noisy_query_shape_q * query_scale) / scene_scale
+            noisy_query_s = noisy_query_shape_s + noisy_ref_frame_s
+        else:
+            noisy_query_s = noisy_query_shape_q + noisy_ref_frame_s
+
+        # not diffusing reference frame not implemented for now
+        if not self.diffuse_ref_frame:
+            raise NotImplementedError("Not diffusing reference frame not implemented for now.")
+            # noisy_query_s = x[:, :, :q]
+            # noisy_query_shape_q = noisy_query_s - noisy_query_s.mean(dim=-1, keepdim=True)
 
         # handling additional query inputs 
         if self.model_cfg.center_query:
-            query = self.query_encoder(torch.cat([
-                query_points, # initial query in world frame
-                query_goal, # query pred in world frame
-                query_points - query_points.mean(dim=-1, keepdim=True), # initial query in object frame
-                query_goal_shape, # query pred in object frame
-            ], dim=1))
+            feature_list = [
+                query_points_s, # initial query in scene frame
+                noisy_query_s, # query prediction in scene frame
+                query_points_q, # initial query in query frame
+                noisy_query_shape_q, # query prediction in query-centric frame
+            ]
         elif self.model_cfg.extra_features:
-            query = self.query_encoder(torch.cat([
-                query_points, # initial query in world frame
-                query_goal, # query pred in world frame
-                query_points - query_points.mean(dim=-1, keepdim=True), # initial query in object frame
-                query_goal_shape, # query pred in object frame
-                query_goal - query_points, # flow pred in object frame # TODO: this will be wrong if predicting rotations
-        ], dim=1))
+            feature_list = [
+                query_points_s, # initial query in scene frame
+                noisy_query_s, # query prediction in scene frame
+                query_points_q, # initial query in query frame
+                noisy_query_shape_q, # query prediction in query-centric frame
+                # noisy_query_s - query_points_s, # flow prediction in query-centric frame # TODO: BUGGED, RETRAIN THIS
+                noisy_query_shape_q - query_points_q, # flow prediction in query-centric frame
+            ]
         else:
-            query = self.query_encoder(torch.cat([
-                query_points, # initial query in world frame
-                query_goal # query pred in world frame
-            ], dim=1))
+            feature_list = [
+                query_points_s, # initial query in scene frame
+                noisy_query_s, # query prediction in scene frame
+            ]
         
+        # query = self.query_encoder(torch.cat(feature_list, dim=1))
+        assert len(feature_list) == self.num_query_inputs, "Number of given query inputs does not match expected input."
+        query = torch.cat(
+            [self.query_encoders[i](feature) for i, feature in enumerate(feature_list)],
+            dim=1,
+        )
+
         ##################################################################
         # Extract and encode spatial context.
         ##################################################################
         context_points = y[:, :, q:]
-        context = self.context_encoder(context_points)
+
+        # Extracting context point cloud - in normalized query frame and normalized scene frame.
+        if self.model_cfg.scale_inputs != "none":
+            context_points_s = (context_points - scene_center) / scene_scale
+            context_points_q = (context_points_s - noisy_ref_frame_s) * scene_scale / query_scale
+        else:
+            context_points_s = context_points
+            context_points_q = context_points_s - noisy_ref_frame_s
+        
+        # context_list = [context_points_s, context_points_q]
+        context_list = [context_points_q, context_points_s]
+        assert len(context_list) == self.num_context_inputs, "Number of given context inputs does not match expected input."
+        # context = self.context_encoder(context_points_s)
+        context = torch.cat(
+            [self.context_encoders[i](context_feature) for i, context_feature in enumerate(context_list)],
+            dim=1,
+        )
+
+        # import rpad.visualize_3d.plots as vpl
+        # query_points_q_viz = query_points_q[0].permute(1, 0).detach().cpu().numpy()
+        # query_points_s_viz = query_points_s[0].permute(1, 0).detach().cpu().numpy()
+        # noisy_query_shape_q_viz = noisy_query_shape_q[0].permute(1, 0).detach().cpu().numpy()
+        # noisy_query_s_viz = noisy_query_s[0].permute(1, 0).detach().cpu().numpy()
+        # context_points_s_viz = context_points_s[0].permute(1, 0).detach().cpu().numpy()
+        # context_points_q_viz = context_points_q[0].permute(1, 0).detach().cpu().numpy()
+
+        # query_points_q_seg = np.ones(query_points_q_viz.shape[0]) * 0
+        # noisy_query_shape_q_seg = np.ones(noisy_query_shape_q_viz.shape[0]) * 1        
+        # context_points_q_seg = np.ones(context_points_q_viz.shape[0]) * 2
+
+        # query_points_s_seg = np.ones(query_points_s_viz.shape[0]) * 3
+        # noisy_query_s_seg = np.ones(noisy_query_s_viz.shape[0]) * 4
+        # context_points_s_seg = np.ones(context_points_s_viz.shape[0]) * 5
+
+        # fig = vpl.segmentation_fig(
+        #     np.concatenate([
+        #         query_points_q_viz,
+        #         query_points_s_viz,
+        #         noisy_query_shape_q_viz,
+        #         noisy_query_s_viz,
+        #         context_points_s_viz,
+        #         context_points_q_viz,
+        #     ]),
+        #     np.concatenate([
+        #         query_points_q_seg,
+        #         query_points_s_seg,
+        #         noisy_query_shape_q_seg,
+        #         noisy_query_s_seg,
+        #         context_points_s_seg,
+        #         context_points_q_seg,
+        #     ]).astype(int),
+        # )
+        # fig.show()
+        # breakpoint()
+
+        # Add ref frame token to context, if necessary.
+        if self.model_cfg.context_token:
+            context = torch.cat([context, self.ref_frame_token.expand(context.shape[0], -1, -1)], dim=2)
 
         # Creating and appending query mask.
         emb = torch.cat([query, context], dim=2).permute(0, 2, 1)
@@ -1313,7 +1602,11 @@ class PointCloudDiT2(nn.Module):
         # Query prediction.
         out = self.query_final_layer(query_emb, c).permute(0, 2, 1)
         # Context prediction, if necessary.
-        if self.diffuse_ref_frame and context_emb.shape[2] > 0:
+        if self.model_cfg.context_token:
+            context_token_emb = context_emb[:, -1:, :]
+            context_out = self.context_final_layer(context_token_emb, c).permute(0, 2, 1)
+            out = torch.cat([out, context_out], dim=-1)
+        elif self.diffuse_ref_frame and context_emb.shape[2] > 0:
             context_dense_out = self.context_final_layer(context_emb, c).permute(0, 2, 1)
             # Split context output into logits and residuals.
             weights = torch.softmax(context_dense_out[:, [0], :], dim=-1)
@@ -1331,345 +1624,246 @@ class PointCloudDiT2(nn.Module):
         return out
 
 
-# class DiT_PointCloud_Unc_Cross(nn.Module):
-#     """
-#     Diffusion model with a Transformer backbone - point cloud, unconditional, with scene cross attention
-#     """
 
-#     def __init__(
-#         self,
-#         in_channels=3,
-#         hidden_size=1152,
-#         depth=28,
-#         num_heads=16,
-#         mlp_ratio=4.0,
-#         learn_sigma=True,
-#         model_cfg=None,
-#     ):
-#         super().__init__()
-#         self.learn_sigma = learn_sigma
-#         self.in_channels = in_channels
-#         # self.out_channels = in_channels * 2 if learn_sigma else in_channels
-#         self.out_channels = 6 if learn_sigma else 3
-#         self.num_heads = num_heads
-#         self.model_cfg = model_cfg
+class PointCloudDit2_2(nn.Module):
+    """
+    New DiT architecture to handle spatial queries.
+    """
+    def __init__(
+            self,
+            in_channels=3,
+            hidden_size=1152,
+            depth=28,
+            num_heads=16,
+            mlp_ratio=4.0,
+            learn_sigma=True,
+            model_cfg=None,
+    ):
+        super().__init__()
+        self.learn_sigma = learn_sigma
+        self.out_channels = 6 if learn_sigma else 3
+        self.num_heads = num_heads
+        self.model_cfg = model_cfg
+        self.diffuse_ref_frame = model_cfg.diffuse_ref_frame
 
-#         x_encoder_hidden_dims = hidden_size
-#         if self.model_cfg.x_encoder is not None and self.model_cfg.x0_encoder is not None:
-#             # We are concatenating x and x0 features so we halve the hidden size
-#             x_encoder_hidden_dims = hidden_size // 2
-
-#         # Encoder for current timestep x features       
-#         if self.model_cfg.x_encoder == "mlp":
-#             # x_embedder is conv1d layer instead of 2d patch embedder
-#             self.x_embedder = nn.Conv1d(
-#                 in_channels,
-#                 x_encoder_hidden_dims,
-#                 kernel_size=1,
-#                 stride=1,
-#                 padding=0,
-#                 bias=True,
-#             )
-#         else:
-#             raise ValueError(f"Invalid x_encoder: {self.model_cfg.x_encoder}")
+        if not self.diffuse_ref_frame:
+            raise ValueError("Currently only diffusing reference frame for TAX3Dv2")
         
-#         # Encoder for y features
-#         if self.model_cfg.y_encoder == "mlp":
-#             self.y_embedder = nn.Conv1d(
-#                 in_channels,
-#                 hidden_size,
-#                 kernel_size=1,
-#                 stride=1,
-#                 padding=0,
-#                 bias=True,
-#             )
-#         elif self.model_cfg.y_encoder == "dgcnn":
-#             self.y_embedder = DGCNN(
-#                 input_dims=in_channels, emb_dims=hidden_size
-#             )
-#         else:
-#             raise ValueError(f"Invalid y_encoder: {self.model_cfg.y_encoder}")            
-
-#         # Encoder for x0 features
-#         if self.model_cfg.x0_encoder == "mlp":
-#             self.x0_embedder = nn.Conv1d(
-#                 in_channels,
-#                 x_encoder_hidden_dims,
-#                 kernel_size=1,
-#                 stride=1,
-#                 padding=0,
-#                 bias=True,
-#             )
-#         elif self.model_cfg.x0_encoder == "dgcnn":
-#             self.x0_embedder = DGCNN(
-#                 input_dims=in_channels, emb_dims=x_encoder_hidden_dims
-#             )
-#         elif self.model_cfg.x0_encoder is None:
-#             pass
-#         else:
-#             raise ValueError(f"Invalid x0_encoder: {self.model_cfg.x0_encoder}")
-
-#         # Timestamp embedding
-#         self.t_embedder = TimestepEmbedder(hidden_size)
-#         self.blocks = nn.ModuleList(
-#             [
-#                 DiTCrossBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio)
-#                 for _ in range(depth)
-#             ]
-#         )
+        if not self.model_cfg.center_query:
+            raise ValueError("Center query must be enabled for TAX3Dv2")
         
-#         # functionally setting patch size to 1 for a point cloud
-#         self.final_layer = FinalLayer(hidden_size, 1, self.out_channels)
-#         self.initialize_weights()
-
-#     def initialize_weights(self):
-#         # Initialize transformer layers:
-#         def _basic_init(module):
-#             if isinstance(module, nn.Linear):
-#                 torch.nn.init.xavier_uniform_(module.weight)
-#                 if module.bias is not None:
-#                     nn.init.constant_(module.bias, 0)
-
-#         self.apply(_basic_init)
-
-#         # Initialize x_embed like nn.Linear (instead of nn.Conv2d):
-#         w = self.x_embedder.weight.data
-#         nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-#         nn.init.constant_(self.x_embedder.bias, 0)
-
-#         # Initialize timestep embedding MLP:
-#         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-#         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
-
-#         # Zero-out adaLN modulation layers in DiT blocks:
-#         for block in self.blocks:
-#             nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-#             nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-
-#         # Zero-out output layers:
-#         nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-#         nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-#         nn.init.constant_(self.final_layer.linear.weight, 0)
-#         nn.init.constant_(self.final_layer.linear.bias, 0)
-
-#     def forward(
-#         self,
-#         x: torch.Tensor,
-#         t: torch.Tensor,
-#         y: torch.Tensor,
-#         x0: Optional[torch.Tensor] = None,
-#     ) -> torch.Tensor:
-#         """
-#         Forward pass of DiT with scene cross attention.
-
-#         Args:
-#             x (torch.Tensor): (B, D, N) tensor of batched current timestep x (e.g. noised action) features
-#             t (torch.Tensor): (B,) tensor of diffusion timesteps
-#             y (torch.Tensor): (B, D, N) tensor of un-noised scene (e.g. anchor) features
-#             x0 (Optional[torch.Tensor]): (B, D, N) tensor of un-noised x (e.g. action) features
-#         """
-#         if self.model_cfg.center_noise:
-#             relative_center = torch.mean(x, dim=2, keepdim=True)
-#             x = x - relative_center
-#             y = y - relative_center
+        if self.model_cfg.context_token and self.model_cfg.scene_residual:
+            raise ValueError("Context token and scene residual cannot be enabled together.")
         
-#         x_emb = self.x_embedder(x)
-
-#         if self.model_cfg.x0_encoder is not None:
-#             assert x0 is not None, "x0 must be provided if x0_encoder is not None"
-#             x0_emb = self.x0_embedder(x0)
-#             x_emb = torch.cat((x_emb, x0_emb), dim=1)
-
-#         if self.model_cfg.y_encoder is not None:
-#             y_emb = self.y_embedder(y)
-#             y_emb = y_emb.permute(0, 2, 1)
-
-#         x = x_emb.permute(0, 2, 1)
-
-#         c = self.t_embedder(t)
-
-#         for block in self.blocks:
-#             x = block(x, y_emb, c)
-
-#         x = self.final_layer(x, c)
-
-#         x = x.permute(0, 2, 1)
-
-#         return x
-
-# class Rel3D_DiT_PointCloud_Unc_Cross(nn.Module):
-#     """
-#     Diffusion model with a Transformer backbone - point cloud, unconditional, with scene cross attention, and relative 3D positional encoding and attention.
-#     """
-
-#     def __init__(
-#         self,
-#         in_channels=3,
-#         hidden_size=1152,
-#         depth=28,
-#         num_heads=16,
-#         mlp_ratio=4.0,
-#         learn_sigma=True,
-#         model_cfg=None,
-#     ):
-#         super().__init__()
-#         self.learn_sigma = learn_sigma
-#         self.in_channels = in_channels
-#         # self.out_channels = in_channels * 2 if learn_sigma else in_channels
-#         self.out_channels = 6 if learn_sigma else 3
-#         self.num_heads = num_heads
-#         self.model_cfg = model_cfg
-
-#         self.relative_3d_encoding = RotaryPositionEncoding3D(hidden_size)
-
-#         x_encoder_hidden_dims = hidden_size
-#         if self.model_cfg.x_encoder is not None and self.model_cfg.x0_encoder is not None:
-#             # We are concatenating x and x0 features so we halve the hidden size
-#             x_encoder_hidden_dims = hidden_size // 2
-
-#         # Encoder for current timestep x features       
-#         if self.model_cfg.x_encoder == "mlp":
-#             # x_embedder is conv1d layer instead of 2d patch embedder
-#             self.x_embedder = nn.Conv1d(
-#                 in_channels,
-#                 x_encoder_hidden_dims,
-#                 kernel_size=1,
-#                 stride=1,
-#                 padding=0,
-#                 bias=True,
-#             )
-#         else:
-#             raise ValueError(f"Invalid x_encoder: {self.model_cfg.x_encoder}")
+        if self.model_cfg.tax3dv2_encoder == "mlp":
+            encoder_fn = partial(pointwise_mlp, in_channels=3)
+        elif self.model_cfg.tax3dv2_encoder == "pn":
+            encoder_fn = partial(pointnet_encoder, model_cfg=self.model_cfg)
+        else:
+            raise ValueError(f"Invalid tax3dv2_encoder: {self.model_cfg.tax3dv2_encoder}")
         
-#         # Encoder for y features
-#         if self.model_cfg.y_encoder == "mlp":
-#             self.y_embedder = nn.Conv1d(
-#                 in_channels,
-#                 hidden_size,
-#                 kernel_size=1,
-#                 stride=1,
-#                 padding=0,
-#                 bias=True,
-#             )
-#         elif self.model_cfg.y_encoder == "dgcnn":
-#             self.y_embedder = DGCNN(
-#                 input_dims=in_channels, emb_dims=hidden_size
-#             )
-#         else:
-#             raise ValueError(f"Invalid y_encoder: {self.model_cfg.y_encoder}")            
-
-#         # Encoder for x0 features
-#         if self.model_cfg.x0_encoder == "mlp":
-#             self.x0_embedder = nn.Conv1d(
-#                 in_channels,
-#                 x_encoder_hidden_dims,
-#                 kernel_size=1,
-#                 stride=1,
-#                 padding=0,
-#                 bias=True,
-#             )
-#         elif self.model_cfg.x0_encoder == "dgcnn":
-#             self.x0_embedder = DGCNN(
-#                 input_dims=in_channels, emb_dims=x_encoder_hidden_dims
-#             )
-#         elif self.model_cfg.x0_encoder is None:
-#             pass
-#         else:
-#             raise ValueError(f"Invalid x0_encoder: {self.model_cfg.x0_encoder}")
-
-#         # Timestamp embedding
-#         self.t_embedder = TimestepEmbedder(hidden_size)
-#         self.blocks = nn.ModuleList(
-#             [
-#                 DiTRelativeCrossBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio)
-#                 for _ in range(depth)
-#             ]
-#         )
+        # query, flow, and scene cnoders
+        self.query_encoder = encoder_fn(out_channels=hidden_size)
+        self.flow_encoder = encoder_fn(out_channels=hidden_size)
+        self.scene_encoder = encoder_fn(out_channels=hidden_size)
         
-#         # functionally setting patch size to 1 for a point cloud
-#         self.final_layer = FinalLayer(hidden_size, 1, self.out_channels)
-#         self.initialize_weights()
+        # query and context mixers
+        self.query_mixer = pointwise_mlp(4 * hidden_size, hidden_size - 1)
+        self.context_mixer = pointwise_mlp(2 * hidden_size, hidden_size - 1)
 
-#     def initialize_weights(self):
-#         # Initialize transformer layers:
-#         def _basic_init(module):
-#             if isinstance(module, nn.Linear):
-#                 torch.nn.init.xavier_uniform_(module.weight)
-#                 if module.bias is not None:
-#                     nn.init.constant_(module.bias, 0)
+        self.t_embedder = TimestepEmbedder(hidden_size)
+        self.blocks = nn.ModuleList(
+            [
+                DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio)
+                for _ in range(depth)
+            ]
+        )
 
-#         self.apply(_basic_init)
+        # query decoder
+        self.query_final_layer = FinalLayer(hidden_size, 1, self.out_channels)
+        # self.context_final_layer = FinalLayer(hidden_size, 1, self.out_channels + 1)
 
-#         # Initialize x_embed like nn.Linear (instead of nn.Conv2d):
-#         w = self.x_embedder.weight.data
-#         nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-#         nn.init.constant_(self.x_embedder.bias, 0)
+        if self.model_cfg.context_token:
+            # Learnable context token.
+            self.ref_frame_token = nn.Parameter(torch.randn(1, 1, hidden_size))
+            self.context_final_layer = FinalLayer(hidden_size, 1, self.out_channels)
+        else:
+            self.context_final_layer = FinalLayer(hidden_size, 1, self.out_channels + 1)
 
-#         # Initialize timestep embedding MLP:
-#         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-#         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
+        self.initialize_weights()
+    
+    def initialize_weights(self):
+        # Initialize transformer layers:
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
 
-#         # Zero-out adaLN modulation layers in DiT blocks:
-#         for block in self.blocks:
-#             nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-#             nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+        self.apply(_basic_init)
 
-#         # Zero-out output layers:
-#         nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-#         nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-#         nn.init.constant_(self.final_layer.linear.weight, 0)
-#         nn.init.constant_(self.final_layer.linear.bias, 0)
+        # Initialize timestep embedding MLP:
+        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
 
-#     def forward(
-#         self,
-#         x: torch.Tensor,
-#         t: torch.Tensor,
-#         y: torch.Tensor,
-#         x0: Optional[torch.Tensor] = None,
-#     ) -> torch.Tensor:
-#         """
-#         Forward pass of DiT with scene cross attention.
-
-#         Args:
-#             x (torch.Tensor): (B, D, N) tensor of batched current timestep x (e.g. noised action) features
-#             t (torch.Tensor): (B,) tensor of diffusion timesteps
-#             y (torch.Tensor): (B, D, N) tensor of un-noised scene (e.g. anchor) features
-#             x0 (Optional[torch.Tensor]): (B, D, N) tensor of un-noised x (e.g. action) features
-#         """
-
-#         if self.model_cfg.center_noise:
-#             relative_center = torch.mean(x, dim=2, keepdim=True)
-#             x = x - relative_center
-#             y = y - relative_center
-
-#         # Get x and y relative 3D positional encoding
-#         x_pos = self.relative_3d_encoding(x.permute(0, 2, 1))
-#         y_pos = self.relative_3d_encoding(y.permute(0, 2, 1))
+        # Zero-out adaLN modulation layers in DiT blocks:
+        for block in self.blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
         
-#         # Get x and y features        
-#         x_emb = self.x_embedder(x)
+        # Zero-out output layers.
+        nn.init.constant_(self.query_final_layer.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.query_final_layer.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.query_final_layer.linear.weight, 0)
+        nn.init.constant_(self.query_final_layer.linear.bias, 0)
+        nn.init.constant_(self.context_final_layer.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.context_final_layer.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.context_final_layer.linear.weight, 0)
+        nn.init.constant_(self.context_final_layer.linear.bias, 0)
 
-#         if self.model_cfg.x0_encoder is not None:
-#             assert x0 is not None, "x0 must be provided if x0_encoder is not None"
-#             x0_emb = self.x0_embedder(x0)
-#             x_emb = torch.cat((x_emb, x0_emb), dim=1)
+    def forward(
+            self,
+            x: torch.Tensor,
+            t: torch.Tensor,
+            y: torch.Tensor,
+            q: int,
+            ref_frame: Optional[torch.Tensor] = None,
+            query_center: Optional[torch.Tensor] = None,
+            query_scale: Optional[torch.Tensor] = None,
+            scene_center: Optional[torch.Tensor] = None,
+            scene_scale: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            x (torch.Tensor): (B, 3, Nq) tensor of batch current timestep x features
+            t (torch.Tensor): (B,) tensor of diffusion timesteps
+            y (torch.Tensor): (B, 3, Nq + Nc) tensor of batch scene point clouds
+            q (int): Size of spatial query point cloud (not necessarily Nq)
+            ref_frame (Optional[torch.Tensor]): (B, 3, 1) tensor of batch reference frame point clouds to inpaint
+        """
+        # ensure that all query size aligns with input size
+        input_size = q + self.diffuse_ref_frame
+        assert input_size == x.shape[2]
 
-#         if self.model_cfg.y_encoder is not None:
-#             y_emb = self.y_embedder(y)
-#             y_emb = y_emb.permute(0, 2, 1)
+        ##################################################################
+        # Extract scene and query-scale input.s
+        ##################################################################
+        query_points = y[:, :, :q]
+        # Extracting query point cloud - in normalized query frame and normalized scene frame.
+        if self.model_cfg.scale_inputs != "none":
+            query_points_q = (query_points - query_center) / query_scale
+            query_points_s = (query_points - scene_center) / scene_scale
+        else:
+            query_points_q, query_points_s = query_points, query_points
+            query_points_q = query_points_q - query_points_q.mean(dim=-1, keepdim=True)
 
-#         x = x_emb.permute(0, 2, 1)
+        # Extracting noisy query prediction - in normalized query frame (shape) and normalized scene frame (query).
+        noisy_query_shape_q = x[:, :, :q]
+        noisy_ref_frame_s = ref_frame if ref_frame is not None else x[:, :, -1:]
+        if self.model_cfg.scale_inputs != "none":
+            noisy_query_shape_s = (noisy_query_shape_q * query_scale) / scene_scale
+            noisy_query_s = noisy_query_shape_s + noisy_ref_frame_s
+        else:
+            noisy_query_s = noisy_query_shape_q + noisy_ref_frame_s
         
-#         c = self.t_embedder(t)
+        context_points = y[:, :, q:]
+        # Extracting context point cloud - in normalized query frame and normalized scene frame.
+        if self.model_cfg.scale_inputs != "none":
+            context_points_s = (context_points - scene_center) / scene_scale
+            context_points_q = (context_points_s - noisy_ref_frame_s) * scene_scale / query_scale
+        else:
+            context_points_s = context_points
+            context_points_q = context_points_s - noisy_ref_frame_s
 
-#         for i, block in enumerate(self.blocks):
-#             x = block(x, y_emb, c, x_pos, y_pos)
+        ##################################################################
+        # Encode query, flow, and scene.
+        ##################################################################
+        # query input: query_points_q
+        # flow input: noisy_query_shape_q, context_points_q
+        # scene input: query_points_s, noisy_query_s, context_points_s
 
-#         x = self.final_layer(x, c)
+        query_encoder_input = query_points_q
+        flow_encoder_input = torch.cat([noisy_query_shape_q, context_points_q], dim=2)
+        scene_encoder_input = torch.cat([query_points_s, noisy_query_s, context_points_s], dim=2)
 
-#         x = x.permute(0, 2, 1)
-            
-#         return x
+        query_features = self.query_encoder(query_encoder_input)
+        flow_features = self.flow_encoder(flow_encoder_input)
+        scene_features = self.scene_encoder(scene_encoder_input)
+
+        ##################################################################
+        # Mix query and context features.
+        ##################################################################
+        # query mixing
+        noisy_query_flow_features, context_flow_features = flow_features[:, :, :q], flow_features[:, :, q:]
+        query_scene_features, noisy_query_scene_features = scene_features[:, :, :q], scene_features[:, :, q:2*q]
+        context_scene_features = scene_features[:, :, 2*q:]
+
+        query_emb = self.query_mixer(
+            torch.cat([query_features, noisy_query_flow_features, query_scene_features, noisy_query_scene_features], dim=1)
+        )
+        context_emb = self.context_mixer(
+            torch.cat([context_flow_features, context_scene_features], dim=1)
+        )
+
+        emb = torch.cat([query_emb, context_emb], dim=2).permute(0, 2, 1)
+        query_mask = torch.zeros(emb.shape[0], emb.shape[1], 1, device=emb.device)
+        query_mask[:, :q, :] = 1
+        emb = torch.cat([emb, query_mask], dim=2)
+
+        # Add ref frame token, if necessary.
+        if self.model_cfg.context_token:
+            emb = torch.cat([emb, self.ref_frame_token.expand(emb.shape[0], -1, -1)], dim=-2)
+
+        # Timestep embedding.
+        c = self.t_embedder(t)
+
+        # Forward pass through DiT blocks.
+        for block in self.blocks:
+            emb = block(emb, c)
+        query_emb, context_emb = emb[:, :q, :], emb[:, q:, :]
+
+        # Query prediction.
+        out = self.query_final_layer(query_emb, c).permute(0, 2, 1)
+
+        # Context prediction, if necessary.
+        if self.model_cfg.context_token:
+            context_token_emb = context_emb[:, -1:, :]
+            context_out = self.context_final_layer(context_token_emb, c).permute(0, 2, 1)
+            out = torch.cat([out, context_out], dim=-1)
+        elif self.diffuse_ref_frame and context_emb.shape[2] > 0:
+
+            # either context residuals, or scene residuals
+            if self.model_cfg.scene_residual:
+                context_dense_out = self.context_final_layer(emb, c).permute(0, 2, 1)
+                # Split context output into logits and residuals.
+                weights = torch.softmax(context_dense_out[:, [0], :], dim=-1)
+                scene_points_s = torch.cat([query_points_s, context_points_s], dim=2)
+                ref_frame_means = context_dense_out[:, 1:4, :] + scene_points_s
+            else:
+                context_dense_out = self.context_final_layer(context_emb, c).permute(0, 2, 1)
+                # Split context output into logits and residuals.
+                weights = torch.softmax(context_dense_out[:, [0], :], dim=-1)
+                ref_frame_means = context_dense_out[:, 1:4, :] + context_points_s
+
+            # # context_dense_out = self.context_final_layer(emb, c).permute(0, 2, 1)
+            # context_dense_out = self.context_final_layer(context_emb, c).permute(0, 2, 1)
+            # # Split context output into logits and residuals.
+            # weights = torch.softmax(context_dense_out[:, [0], :], dim=-1)
+            # # scene_points_s = torch.cat([query_points_s, context_points_s], dim=2)
+            # # ref_frame_means = context_dense_out[:, 1:4, :] + scene_points_s
+            # ref_frame_means = context_dense_out[:, 1:4, :] + context_points_s
+
+            # Aggregate context predictions, and include sigma prediction if necessary.
+            context_out = torch.sum(weights * ref_frame_means, dim=-1, keepdim=True)
+
+            if self.learn_sigma:
+                sigmas = torch.sum(weights * context_dense_out[:, 4:, :], dim=-1, keepdim=True)
+                context_out = torch.cat([context_out, sigmas], dim=1)
+
+            # Concatenate query and context predictions. Also return weights and residuals.
+            out = (torch.cat([out, context_out], dim=-1), torch.cat([weights, ref_frame_means], dim=1))
+        return out
+
 
 
 #################################################################################

@@ -19,6 +19,7 @@ from non_rigid.models.dit.diffusion import create_diffusion
 # from non_rigid.models.dit.models import DiT_PointCloud_Unc as DiT_pcu
 from non_rigid.models.dit.models import (
     DiT_PointCloud_Cross,
+    DiT_PointCloud_Cross_Joint,
     DiT_PointCloud,
     PointCloudDiT2,
     # ReferenceFramePredictor,
@@ -29,7 +30,7 @@ from non_rigid.utils.pointcloud_utils import expand_pcd
 def DiT_PointCloud_Cross_xS(use_rotary, **kwargs):
     # hidden size divisible by 3 for rotary embedding, and divisible by num_heads for multi-head attention
     hidden_size = 132 if use_rotary else 128
-    return DiT_PointCloud_Cross(depth=5, hidden_size=hidden_size, num_heads=4, **kwargs)
+    return DiT_PointCloud_Cross_Joint(depth=5, hidden_size=hidden_size, num_heads=4, **kwargs)
 
 def DiT_PointCloud_xS(use_rotary, **kwargs):
     # hidden size divisible by 3 for rotary embedding, and divisible by num_heads for multi-head attention

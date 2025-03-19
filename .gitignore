@@ -388,3 +388,8 @@ wandb_artifacts/
 logs/
 
 .singularity_images/
+
+# Ignore files in notebooks that aren't code.
+notebooks
+!notebooks/*.py
+!notebooks/*.ipynb

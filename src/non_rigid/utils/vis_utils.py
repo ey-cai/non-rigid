@@ -80,7 +80,7 @@ def visualize_sampled_predictions(ground_truth, context, predictions):
     return fig
 
 
-def visualize_diffusion_timelapse(context, results, extras=None):
+def visualize_diffusion_timelapse(context, results, ref_frame_results=None, extras=None):
     """
     Helper function to visualize diffusion timelapse for a single prediction.
     Args:
@@ -94,6 +94,7 @@ def visualize_diffusion_timelapse(context, results, extras=None):
 
     # Creating all frame traces. traces[i] is a list of traces for frame i.
     traces = []
+    scene_data = [*context.values(), *results]
     num_frames = len(results)
     for timestep, result_step in enumerate(results):
         frame_traces = []
@@ -111,13 +112,14 @@ def visualize_diffusion_timelapse(context, results, extras=None):
                     "line": {"width": 0}}
 
                 # also add the residual predictions as a trace
-                context_residuals = extras[timestep - 1][1:4] # get residuals
+                context_residuals = np.transpose(extras[timestep - 1][1:4]) # get residuals
+                scene_data.append(context_residuals)
                 frame_traces.append(
                     go.Scatter3d(
                         mode="markers",
-                        x=context_residuals[0, :],
-                        y=context_residuals[1, :],
-                        z=context_residuals[2, :],
+                        x=context_residuals[:, 0],
+                        y=context_residuals[:, 1],
+                        z=context_residuals[:, 2],
                         marker={"size": 4, "color": context_color, "colorscale": "Inferno", "line": {"width": 0}, "symbol": "diamond"},
                         name="Residuals",
                     )
@@ -135,6 +137,22 @@ def visualize_diffusion_timelapse(context, results, extras=None):
                         name="Residuals",
                     )
                 )
+            
+            # Plot query in query frame.
+            if context_name == "Action":
+                action_q = context_points - np.mean(context_points, axis=0, keepdims=True)
+
+                frame_traces.append(
+                    go.Scatter3d(
+                        mode="markers",
+                        x=action_q[:, 0],
+                        y=action_q[:, 1],
+                        z=action_q[:, 2],
+                        marker={"size": 4, "color": "blue", "line": {"width": 0}},
+                        name="Query (Query Frame)",
+                    )
+                )
+
             frame_traces.append(
                 go.Scatter3d(
                     mode="markers",
@@ -161,6 +179,40 @@ def visualize_diffusion_timelapse(context, results, extras=None):
         )
         traces.append(frame_traces)
 
+        # Plot reference frame, and query prediction in query frame.
+        if ref_frame_results is not None:
+            ref_frame_res = ref_frame_results[timestep]
+            frame_traces.append(
+                go.Scatter3d(
+                    mode="markers",
+                    x=ref_frame_res[:, 0],
+                    y=ref_frame_res[:, 1],
+                    z=ref_frame_res[:, 2],
+                    marker={"size": 6, "color": "green", "line": {"width": 0}},
+                )
+            )
+            query_pred_q = result_step - ref_frame_res
+            frame_traces.append(
+                go.Scatter3d(
+                    mode="markers",
+                    x=query_pred_q[:, 0],
+                    y=query_pred_q[:, 1],
+                    z=query_pred_q[:, 2],
+                    marker={"size": 6, "color": "blue", "line": {"width": 0}},
+                )
+            )
+            context_q = context["Anchor"] - ref_frame_res
+            frame_traces.append(
+                go.Scatter3d(
+                    mode="markers",
+                    x=context_q[:, 0],
+                    y=context_q[:, 1],
+                    z=context_q[:, 2],
+                    marker={"size": 6, "color": "blue", "line": {"width": 0}},
+                )
+            )
+            scene_data.append(context_q)
+
     # Create figure.
     fig = go.Figure(
         frames=[
@@ -180,7 +232,7 @@ def visualize_diffusion_timelapse(context, results, extras=None):
 
     fig.update_layout(
         title="Diffusion Timelapse",
-        scene=rvpl._3d_scene(np.concatenate([*context.values(), *results])),
+        scene=rvpl._3d_scene(np.concatenate(scene_data)),
         updatemenus=[
             {
                 "buttons": [

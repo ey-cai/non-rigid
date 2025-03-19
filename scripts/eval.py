@@ -6,11 +6,13 @@ import omegaconf
 import torch
 import wandb
 from pytorch3d.transforms import Transform3d, Translate
+import torch.utils._pytree as pytree
 
 from non_rigid.utils.script_utils import (
     create_model,
     create_datamodule,
     load_checkpoint_config_from_wandb,
+    flatten_outputs,
 )
 
 from non_rigid.nets.dgcnn import DGCNN
@@ -20,6 +22,11 @@ from tqdm import tqdm
 import numpy as np
 
 import rpad.visualize_3d.plots as vpl
+from non_rigid.models.frame_predict import (
+    FramePredictorSimple,
+    FramePredictorDGCNN,
+    FramePredictorMLPTransformer,
+)
 
 def visualize_batched_point_clouds(point_clouds):
     """
@@ -87,58 +94,12 @@ def main(cfg):
 
     cfg.inference.batch_size = bs
     cfg.inference.val_batch_size = bs
-    cfg.dataset.sample_size_action = -1
+    # cfg.dataset.sample_size_action = -1
     # cfg.dataset.sample_size_anchor = -1
 
     ######################################################################
     # Load the reference frame predictor, if necessary.
     ######################################################################
-    class FramePredictorDGCNN(torch.nn.Module):
-        def __init__(self, out_channels):
-            super(FramePredictorDGCNN, self).__init__()
-            self.out_channels = out_channels
-            self.dgcnn = DGCNN(emb_dims=512)
-            self.final = torch.nn.Conv1d(
-                in_channels=512,
-                out_channels=out_channels,
-                kernel_size=1,
-                stride=1,
-                padding=0,
-                bias=True,
-            )
-
-        def forward(self, batch):
-            # make sure all of the point clouds in the batch have the same number of points
-            ptr_diffs = torch.unique(batch.ptr[1:] - batch.ptr[:-1])
-            if len(ptr_diffs) > 1:
-                raise ValueError("All point clouds in the batch must have the same number of points.")
-            else:
-                num_points = ptr_diffs.item()
-            
-            input = batch.pos.reshape(-1, num_points, 3).permute(0, 2, 1)
-            output = self.dgcnn(input)
-            output = self.final(output)
-            # reshape output to get (B, N, C) shape
-            output = output.permute(0, 2, 1)
-
-            logits = output[..., [0]]
-            residuals = output[..., 1:4]
-            vars = output[..., 4:]
-
-            # run vars through softplus to ensure positive values
-            vars = torch.nn.functional.softplus(vars)
-
-            # add mean residuals to points to get mean predictions
-            means = residuals + batch.pos.reshape(-1, num_points, 3)
-
-            # converting logits to probabilities
-            probs = torch.softmax(logits, dim=1)
-
-            return {
-                "probs": probs,
-                "means": means,
-                "vars": vars,
-            }
     
     if cfg.use_gmm:
         # gmm can only be used with oracle models
@@ -152,9 +113,9 @@ def main(cfg):
         import torch_geometric.data as tgd
         import os
 
-        ref_frame_predictor = FramePredictorDGCNN(5)
-        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/gmm_init/checkpoints/")
-        gmm_ckpt = torch.load(checkpoint_dir + "model_1000.pt", map_location=device)
+        ref_frame_predictor = FramePredictorMLPTransformer()
+        checkpoint_dir = os.path.expanduser("~/non-rigid-robot/notebooks/mlp_transformer_epochs=5000_var=1.0_uniform_loss=0.1/checkpoints/")
+        gmm_ckpt = torch.load(checkpoint_dir + "model_5000.pt", map_location=device)
 
         ref_frame_predictor.load_state_dict(gmm_ckpt)
         ref_frame_predictor.eval()
@@ -215,7 +176,6 @@ def main(cfg):
         ckpt_file = checkpoint_reference
     # Load the network weights.
     ckpt = torch.load(ckpt_file, map_location=device)
-
     network.load_state_dict(
         {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items() if k.startswith("network.")}
     )
@@ -238,8 +198,6 @@ def main(cfg):
         rmse = []
         coverage = []
         precision = []
-        # probabilities = []
-
 
         for i in tqdm(range(num_batches)):
             batch_list = []
@@ -259,15 +217,30 @@ def main(cfg):
 
             # convert to batch
             batch = {key: torch.stack([item[key] for item in batch_list]) for key in eval_keys}
-
             # generate predictions
             if cfg.use_gmm:
                 # expand action and anchor point clouds
                 gmm_action = expand_pcd(batch["pc_action"], num_samples)
                 gmm_anchor = expand_pcd(batch["pc_anchor"], num_samples)
-                gmm_batch = tgd.Batch.from_data_list([
-                    tgd.Data(pos=gmm_anchor[i]) for i in range(bs * num_samples)
-                ]).to(device)
+
+                if "rel_pose" in batch:
+                    gmm_rel_pose = expand_pcd(batch["rel_pose"], num_samples)
+                    gmm_batch = tgd.Batch.from_data_list([
+                        tgd.Data(
+                            x=gmm_anchor[i],
+                            pos=gmm_anchor[i],
+                            action=gmm_action[i],
+                            rel_pose=gmm_rel_pose[i],
+                        ) for i in range(bs * num_samples)
+                    ]).to(device)
+                else:
+                    gmm_batch = tgd.Batch.from_data_list([
+                        tgd.Data(
+                            x=gmm_anchor[i],
+                            pos=gmm_anchor[i],
+                            action=gmm_action[i],
+                        ) for i in range(bs * num_samples)
+                    ]).to(device)
 
                 # sample reference frames for WTA
                 gmm_pred = ref_frame_predictor(gmm_batch)
@@ -278,13 +251,13 @@ def main(cfg):
                 batch["ref_frame"] = sampled_ref_frames
 
             pred_dict = model.predict(batch, num_samples, progress=False, full_prediction=True)
-            pred_pc = pred_dict["point"]["pred"]
+            pred_point_world = pred_dict["point"]["pred_world"]
 
             # if diffusing reference frame, update prediction
             if cfg.model.diffuse_ref_frame:
                 gt_ref_frame = batch["goal_origin"].unsqueeze(-2).to(device)
-                pred_ref_frame = pred_dict["ref_frame"]
-                pred_pc = pred_pc + pred_ref_frame
+                # pred_ref_frame = pred_dict["ref_frame"]
+                # pred_pc = pred_pc + pred_ref_frame
 
             batch_rmse = torch.zeros(bs, cfg.inference.num_wta_trials * bs)
 
@@ -296,15 +269,21 @@ def main(cfg):
                 seg = expand_pcd(seg, num_samples * bs)
 
                 # if predicting reference frame, update ground truth
-                if cfg.use_gmm:
+                if cfg.use_gmm and not cfg.model.tax3dv2:
                     gt_pc = gt_pc - sampled_ref_frames.to(device)
 
                 # if diffusing reference frame, update ground truth
                 if cfg.model.diffuse_ref_frame:
                     gt_pc = gt_pc + expand_pcd(gt_ref_frame[j].unsqueeze(0), num_samples * bs)
+                
+                # put ground truth in world frame
+                T_goal2world = Transform3d(
+                    matrix=expand_pcd(batch["T_goal2world"][j].unsqueeze(0).to(device), num_samples * bs) 
+                )
+                gt_pc_world = T_goal2world.transform_points(gt_pc)
 
                 seg = seg == 0
-                batch_rmse[j] = flow_rmse(pred_pc, gt_pc, mask=True, seg=seg)
+                batch_rmse[j] = flow_rmse(pred_point_world, gt_pc_world, mask=True, seg=seg)
 
             # computing precision and coverage
             batch_precision = torch.min(batch_rmse, dim=0).values
@@ -321,10 +300,43 @@ def main(cfg):
         return rmse, coverage, precision
 
 
+
+    def simple_eval(datamodule, model):
+        trainer = L.Trainer(
+            accelerator="gpu",
+            devices=cfg.resources.gpus,
+            precision="32-true",
+            logger=False,
+        )
+
+        train_outputs, val_outputs, val_ood_outputs = trainer.predict(
+            model,
+            dataloaders=[
+                datamodule.train_dataloader(),
+                *datamodule.val_dataloader(),
+            ]
+        )
+
+        for outputs_list, name in [
+            (train_outputs, "train"),
+            (val_outputs, "val"),
+            (val_ood_outputs, "val_ood"),
+        ]:
+            out_cpu = [pytree.tree_map(lambda x: x.cpu(), o) for o in outputs_list]
+            outputs = flatten_outputs(out_cpu)
+
+            rmse = torch.mean(outputs["rmse"])
+            rmse_wta = torch.mean(outputs["rmse_wta"])
+            print(f"{name} RMSE: {rmse}, WTA RMSE: {rmse_wta}")
+
     ######################################################################
     # Run the model on the train/val/test sets.
     ######################################################################
     model.to(device)
+
+    # simple_eval(datamodule, model)
+    # quit()
+
     train_rmse, train_coverage, train_precision = run_eval(datamodule.train_dataset, model)
     val_rmse, val_coverage, val_precision = run_eval(datamodule.val_dataset, model)
     val_ood_rmse, val_ood_coverage, val_ood_precision = run_eval(datamodule.val_ood_dataset, model)

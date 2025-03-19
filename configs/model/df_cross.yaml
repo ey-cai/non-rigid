@@ -20,7 +20,7 @@ diffuse_ref_frame: False # Diffuse reference frame for anchor point cloud
 oracle: False # if True, use action goal centroid
 noisy_goal_origin: False # if True, add noise to the goal frame origin
 extra_features: False # if True, adding extra contextual features to the model
-normalize_inputs: False # if True, normalize inputs
+scale_inputs: none # [none, normalize, standardize] scale inputs
 
 # Encoder settings
 x_encoder: mlp # Encoder current timestep x
@@ -30,12 +30,18 @@ x0_encoder: mlp # (mlp, dgcnn) Encoder for x0 object (e.g. action pcd)
 # diffusion settings
 diff_train_steps: 100 # Number of diffusion steps during training
 diff_inference_steps: 100 # Number of diffusion steps during inference
-diff_noise_schedule: linear # (linear, cosine) Noise schedule for diffusion
+diff_noise_schedule: linear # (linear, squaredcos_cap_v2) Noise schedule for diffusion
 diff_noise_scale: 1.0 # Scale of noise for diffusion
 diff_type: gaussian
+
+joint_encode: False # if True, jointly encode features in the same reference frame
 
 # Dummy config for tax3dv2.
 tax3dv2: False
 
 # TAX3DV2 configs.
 center_query: False # WARNING: this is probably not in use right now (using extra_features instead)
+center_context: False # if True, featurize context in query frame # UNUSED
+context_token: False # if True, learn context token for context prediction
+scene_residual: False # if True, use scene residual for context prediction
+tax3dv2_encoder: mlp # (mlp, pn, dgcnn) Encoder for TAX3Dv2

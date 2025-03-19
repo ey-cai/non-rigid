@@ -30,6 +30,7 @@ from non_rigid.models.tax3dv2 import (
 
 from non_rigid.datasets.proc_cloth_flow import ProcClothFlowDataModule
 from non_rigid.datasets.dedo import DedoDataModule
+from non_rigid.datasets.dedov2 import Dedov2DataModule
 
 
 PROJECT_ROOT = str(pathlib.Path(__file__).parent.parent.parent.parent.resolve())
@@ -82,7 +83,9 @@ def create_datamodule(cfg):
 
 
     # check dataset name
-    if cfg.dataset.name == "proc_cloth":
+    if cfg.model.tax3dv2:
+        datamodule_fn = Dedov2DataModule
+    elif cfg.dataset.name == "proc_cloth":
         datamodule_fn = ProcClothFlowDataModule
     elif cfg.dataset.name == "dedo":
         datamodule_fn = DedoDataModule

@@ -25,8 +25,8 @@ from plotly import graph_objects as go
 
 def visualize_batched_point_clouds(point_clouds):
     """
-    Helper function to visualize a list of batched point clouds. This is meant to be used 
-    when visualizing action/anchor/prediction point clouds, without having to add 
+    Helper function to visualize a list of batched point clouds. This is meant to be used
+    when visualizing action/anchor/prediction point clouds, without having to add
 
     point_clouds: list of point clouds, each of shape (B, N, 3)
     """
@@ -45,10 +45,10 @@ def visualize_batched_point_clouds(point_clouds):
 def main(cfg):
     task_overrides = HydraConfig.get().overrides.task
     cfg = load_checkpoint_config_from_wandb(
-        cfg, 
-        task_overrides, 
-        cfg.wandb.entity, 
-        cfg.wandb.project, 
+        cfg,
+        task_overrides,
+        cfg.wandb.entity,
+        cfg.wandb.project,
         cfg.checkpoint.run_id
     )
     print(
@@ -77,7 +77,7 @@ def main(cfg):
     ######################################################################
     # Manually setting eval-specific configs.
     ######################################################################
-    # Using a custom cloth-specific batch size, to allow for simultaneous evaluation 
+    # Using a custom cloth-specific batch size, to allow for simultaneous evaluation
     # of RMSE, coverage, and precision.
     if cfg.dataset.hole == "single":
         bs = 1
@@ -89,7 +89,7 @@ def main(cfg):
 
     cfg.inference.batch_size = bs
     cfg.inference.val_batch_size = bs
-    cfg.dataset.sample_size_action = -1
+    # cfg.dataset.sample_size_action = -1
     # cfg.dataset.sample_size_anchor = -1
 
     ######################################################################
@@ -116,7 +116,7 @@ def main(cfg):
                 raise ValueError("All point clouds in the batch must have the same number of points.")
             else:
                 num_points = ptr_diffs.item()
-            
+
             input = batch.pos.reshape(-1, num_points, 3).permute(0, 2, 1)
             output = self.dgcnn(input)
             output = self.final(output)
@@ -141,12 +141,12 @@ def main(cfg):
                 "means": means,
                 "vars": vars,
             }
-    
+
     if cfg.use_gmm:
         # gmm can only be used with oracle models
         if not cfg.model.oracle and not cfg.model.tax3dv2:
             raise ValueError("GMM can only be used with oracle models or TAX3Dv2 models.")
-        
+
         # cannot predict and diffuse reference frame together
         if cfg.model.diffuse_ref_frame and not cfg.model.tax3dv2:
             raise ValueError("Can only predict and diffuse reference frame together for TAX3Dv2.")
@@ -168,7 +168,7 @@ def main(cfg):
 
     ######################################################################
     # Create the datamodule. This is just to initialize the datasets - we are
-    # not going to use the dataloaders, because we need to manually downsample 
+    # not going to use the dataloaders, because we need to manually downsample
     # and batch.
     ######################################################################
     cfg, datamodule = create_datamodule(cfg)
@@ -200,9 +200,9 @@ def main(cfg):
             monitor_name = cfg.checkpoint.monitor_name
             if not isinstance(monitor_name, str):
                 raise ValueError(f"Invalid monitor name: {monitor_name}. Must be a string.")
-            
+
             # searching for checkpoints with exact monitor name - should only be one for now.
-            valid_artifact_file_names = [f for f in artifact_file_names if 
+            valid_artifact_file_names = [f for f in artifact_file_names if
                                          f.split("-")[2].split("=")[0] == monitor_name]
             if len(valid_artifact_file_names) == 0:
                 raise ValueError(f"Could not find any files with monitor name: {monitor_name}.")
@@ -296,30 +296,36 @@ def main(cfg):
                 gt_pc_world = gt_pc_world[0]
                 action_pc_world = action_pc_world[0]
                 anchor_pc_world = anchor_pc_world[0]
-            
+
             # If diffusing reference frame, update ground truth with goal origin.
             if cfg.model.diffuse_ref_frame:
                 gt_pc_world += batch["goal_origin"].cpu().numpy()
 
             # visualize sampled predictions
+            context = {
+                "Action": action_pc_world,
+                "Anchor": anchor_pc_world,
+            }
+            # For TAX3Dv2, also visualize reference frame predictions.
+            if cfg.model.tax3dv2:
+                context["Ref Frame"] = pred_dict["ref_frame_world"].squeeze().cpu().numpy()
             fig = visualize_sampled_predictions(
                 ground_truth = gt_pc_world,
-                context = {
-                    "Action": action_pc_world,
-                    "Anchor": anchor_pc_world,
-                },
+                context = context,
                 predictions = pred_pc_world,
             )
             fig.show()
 
             # visualize diffusion timelapse
-            VIZ_IDX = 0 # 4
+            VIZ_IDX = 4 # 0
             results = [res[VIZ_IDX].cpu().numpy() for res in pred_dict["results_world"]]
             # For TAX3Dv2, also grab logit/residual predictions.
             if cfg.model.tax3dv2:
                 extras = [ext[VIZ_IDX].cpu().numpy() for ext in pred_dict["extras"]]
+                ref_frame_results = [ref_frame_res[VIZ_IDX].cpu().numpy() for ref_frame_res in pred_dict["ref_frame_results_world"]]
             else:
                 extras = None
+                ref_frame_results = None
             fig = visualize_diffusion_timelapse(
                 context = {
                     "Action": action_pc_world,
@@ -327,14 +333,15 @@ def main(cfg):
                 },
                 results = results,
                 extras = extras,
+                ref_frame_results = ref_frame_results,
             )
-            fig.show()
+            # fig.show()
 
     ######################################################################
     # Run the model on the train/val/test sets.
     ######################################################################
     train_indices = []
-    val_indices = [0]
+    val_indices = [0, 2, 4, 6, 8, 10, 12, 14]
     val_ood_indices = []
     model.to(device)
     run_vis(datamodule.train_dataset, model, train_indices)

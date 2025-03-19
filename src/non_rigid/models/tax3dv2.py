@@ -9,12 +9,12 @@ from pytorch3d.transforms import Transform3d, Translate
 
 from non_rigid.metrics.flow_metrics import flow_rmse
 from non_rigid.models.dit.diffusion import create_diffusion
-from non_rigid.models.dit.models import PointCloudDiT2
+from non_rigid.models.dit.models import PointCloudDiT2, PointCloudDit2_2
 from non_rigid.utils.logging_utils import viz_predicted_vs_gt
 from non_rigid.utils.pointcloud_utils import expand_pcd
 
 def PointCloudDiT2_xS(**kwargs):
-    return PointCloudDiT2(depth=5, hidden_size=128, num_heads=4, **kwargs)
+    return PointCloudDit2_2(depth=5, hidden_size=128, num_heads=4, **kwargs)
 
 class TAX3Dv2Network(nn.Module):
     """
@@ -75,14 +75,13 @@ class TAX3Dv2Module(L.LightningModule):
         self.sample_size_anchor = self.run_cfg.sample_size_anchor
 
         # diffusion params
-        # self.noise_schedule = model_cfg.diff_noise_schedule
-        # self.noise_scale = model_cfg.diff_noise_scale
-        self.diff_steps = self.model_cfg.diff_train_steps # TODO: rename to diff_steps?
+        self.noise_schedule = self.model_cfg.diff_noise_schedule
+        self.diff_steps = self.model_cfg.diff_train_steps
         self.num_wta_trials = self.run_cfg.num_wta_trials
         self.diffusion = create_diffusion(
             timestep_respacing=None,
             diffusion_steps=self.diff_steps,
-            # noise_schedule=self.noise_schedule,
+            noise_schedule=self.noise_schedule,
         )
 
     def configure_optimizers(self):
@@ -95,7 +94,14 @@ class TAX3Dv2Module(L.LightningModule):
             num_warmup_steps=self.lr_warmup_steps,
             num_training_steps=self.num_training_steps,
         )
-        return [optimizer], [lr_scheduler]
+        # return [optimizer], [lr_scheduler]
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": lr_scheduler,
+                "interval": "step",  # Step after every batch
+            },
+        }
 
     def get_model_kwargs(self, batch, num_samples=None):
         """
@@ -105,11 +111,33 @@ class TAX3Dv2Module(L.LightningModule):
             batch: the input batch
             num_samples: the number of samples to generate per batch element
         """
+        pc_query = batch["pc_action"].to(self.device)
+        pc_context = batch["pc_anchor"].to(self.device)
+        pc_scene = torch.cat([pc_query, pc_context], dim=1)
         pre_kwargs = {
-            "query": batch["pc_action"].to(self.device),
-            "context": batch["pc_anchor"].to(self.device),
+            "query": pc_query,
+            "context": pc_context,
+            "scene": pc_scene,
         }
-        bs = pre_kwargs["query"].shape[0]
+        bs = pc_query.shape[0]
+
+        # add query-centric and scene-centric statistics, if scaling inputs
+        if self.model_cfg.scale_inputs != "none":
+            query_center = pc_query.mean(dim=1, keepdim=True)
+            scene_center = pc_scene.mean(dim=1, keepdim=True)
+            if self.model_cfg.scale_inputs == "normalize":
+                query_scale = torch.norm(pc_query - query_center, dim=-1, keepdim=True).max(dim=1, keepdim=True).values
+                scene_scale = torch.norm(pc_scene - scene_center, dim=-1, keepdim=True).max(dim=1, keepdim=True).values
+            elif self.model_cfg.scale_inputs == "standardize":
+                query_scale = torch.norm(pc_query - query_center, dim=-1, keepdim=True).var(dim=1, keepdim=True)
+                scene_scale = torch.norm(pc_scene - scene_center, dim=-1, keepdim=True).var(dim=1, keepdim=True)
+            else:
+                raise ValueError(f"Invalid scale_inputs: {self.model_cfg.scale_inputs}")
+            
+            pre_kwargs["query_center"] = query_center
+            pre_kwargs["query_scale"] = query_scale
+            pre_kwargs["scene_center"] = scene_center
+            pre_kwargs["scene_scale"] = scene_scale
 
         # expanding point clouds, if necessary
         if num_samples is not None:
@@ -120,24 +148,35 @@ class TAX3Dv2Module(L.LightningModule):
 
         # populating model kwargs
         model_kwargs = dict(
-            y=torch.cat([pre_kwargs["query"], pre_kwargs["context"]], dim=-1),
+            # y=torch.cat([pre_kwargs["query"], pre_kwargs["context"]], dim=-1),
+            y=pre_kwargs["scene"],
             q=pre_kwargs["query"].shape[-1],
         )
         
+        # adding scaling statistics, if necessary
+        if self.model_cfg.scale_inputs != "none":
+            model_kwargs["query_center"] = pre_kwargs["query_center"]
+            model_kwargs["query_scale"] = pre_kwargs["query_scale"]
+            model_kwargs["scene_center"] = pre_kwargs["scene_center"]
+            model_kwargs["scene_scale"] = pre_kwargs["scene_scale"]
+
         # handling reference frame inpainting
         if "ref_frame" in batch:
-            ref_frame = batch["ref_frame"].to(self.device)
+            ref_frame = batch["ref_frame"].to(self.device).permute(0, 2, 1)
             if num_samples is not None:
                 # either frame is already in correct shape, or it needs to be expanded
                 if ref_frame.shape[0] == bs:
                     ref_frame = expand_pcd(ref_frame, num_samples)
                 elif ref_frame.shape[0] != bs * num_samples:
                     raise ValueError("Invalid reference frame shape.")
-            model_kwargs["ref_frame"] = ref_frame.permute(0, 2, 1)
+            # scale reference frame, if necessary
+            if self.model_cfg.scale_inputs != "none":
+                ref_frame = (ref_frame - model_kwargs["scene_center"]) / model_kwargs["scene_scale"]
+            model_kwargs["ref_frame"] = ref_frame
 
         return model_kwargs
 
-    def get_world_preds(self, batch, num_samples, pc_query, pred_dict):
+    def get_world_preds(self, batch, model_kwargs, num_samples, pc_query, pred_dict):
         """
         Get world-frame predictions from the given batch and predictions.
         """
@@ -150,9 +189,26 @@ class TAX3Dv2Module(L.LightningModule):
 
         pred_point = pred_dict["point"]["pred"]
         results = pred_dict["results"]
+        ref_frame = pred_dict["ref_frame"]
+        ref_frame_results = pred_dict["ref_frame_results"]
+
+        # put point cloud predictions in normalized scene frame - same frame as reference frame prediction
+        if self.model_cfg.scale_inputs != "none":
+            scene_scale, query_scale = model_kwargs["scene_scale"], model_kwargs["query_scale"]
+            scene_center = model_kwargs["scene_center"].permute(0, 2, 1)
+            pred_point = (pred_point * query_scale) / scene_scale
+            results = [(res * query_scale) / scene_scale for res in results]
+
         # updating prediction reference frames
-        pred_point = pred_point + pred_dict["ref_frame"]
-        results = [res + pred_dict["ref_frame_results"][i] for i, res in enumerate(results)]
+        pred_point = pred_point + ref_frame
+        results = [res + ref_frame_results[i] for i, res in enumerate(results)]
+
+        # put point cloud predictions back in input frame
+        if self.model_cfg.scale_inputs != "none":
+            pred_point = (pred_point * scene_scale) + scene_center
+            results = [(res * scene_scale) + scene_center for res in results]
+            ref_frame = (ref_frame * scene_scale) + scene_center
+            ref_frame_results = [(res * scene_scale) + scene_center for res in ref_frame_results]
 
         pred_point_world = T_context2world.transform_points(pred_point)
         pc_query_world = T_query2world.transform_points(pc_query)
@@ -160,7 +216,11 @@ class TAX3Dv2Module(L.LightningModule):
         results_world = [
             T_context2world.transform_points(res) for res in results
         ]
-        return pred_flow_world, pred_point_world, results_world
+        ref_frame_world = T_context2world.transform_points(ref_frame)
+        ref_frame_results_world = [
+            T_context2world.transform_points(res) for res in ref_frame_results
+        ]
+        return pred_flow_world, pred_point_world, results_world, ref_frame_world, ref_frame_results_world
 
     def get_viz_args(self, batch, viz_idx):
         """
@@ -169,6 +229,17 @@ class TAX3Dv2Module(L.LightningModule):
         pc_pos_viz = batch["pc"][viz_idx, :, :3] + batch["goal_origin"][viz_idx, :3].unsqueeze(0)
         pc_query_viz = batch["pc_action"][viz_idx, :, :3]
         pc_context_viz = batch["pc_anchor"][viz_idx, :, :3]
+
+        # putting point clouds into world frame - consistent with prediction
+        T_query2world = Transform3d(
+            matrix=batch["T_action2world"][viz_idx]
+        )
+        T_context2world = Transform3d(
+            matrix=batch["T_goal2world"][viz_idx]
+        )
+        pc_pos_viz = T_context2world.transform_points(pc_pos_viz)
+        pc_query_viz = T_query2world.transform_points(pc_query_viz)
+        pc_context_viz = T_context2world.transform_points(pc_context_viz)
         viz_args = {
             "pc_pos_viz": pc_pos_viz,
             "pc_action_viz": pc_query_viz,
@@ -180,10 +251,18 @@ class TAX3Dv2Module(L.LightningModule):
         """
         Forward pass to compute diffusion training loss.
         """
-        ground_truth = batch[self.label_key].permute(0, 2, 1) # channel first
-        # update ground truth with goal origin
-        ground_truth = torch.cat([ground_truth, batch['goal_origin'].unsqueeze(-1)], dim=-1)
+        ground_truth_pc = batch[self.label_key].permute(0, 2, 1) # channel first
+        ground_truth_ref_frame = batch["goal_origin"].unsqueeze(-1)
         model_kwargs = self.get_model_kwargs(batch)
+
+        # if scaling input, update ground truth
+        if self.model_cfg.scale_inputs != "none":
+            ground_truth_pc = ground_truth_pc / model_kwargs["query_scale"] # goal query in query SCALE
+            ground_truth_ref_frame = (
+                ground_truth_ref_frame - model_kwargs["scene_center"]
+            ) / model_kwargs["scene_scale"] # goal origin in scene FRAME
+        
+        ground_truth = torch.cat([ground_truth_pc, ground_truth_ref_frame], dim=-1)
 
         # run diffusion
         loss_dict = self.diffusion.training_losses(
@@ -264,12 +343,14 @@ class TAX3Dv2Module(L.LightningModule):
             }
 
             # computing world-frame predictions
-            pred_flow_world, pred_point_world, results_world = self.get_world_preds(
-                batch, num_samples, pc_query, pred_dict
+            pred_flow_world, pred_point_world, results_world, ref_frame_world, ref_frame_results_world = self.get_world_preds(
+                batch, model_kwargs, num_samples, pc_query, pred_dict
             )
             pred_dict["flow"]["pred_world"] = pred_flow_world
             pred_dict["point"]["pred_world"] = pred_point_world
             pred_dict["results_world"] = results_world
+            pred_dict["ref_frame_world"] = ref_frame_world
+            pred_dict["ref_frame_results_world"] = ref_frame_results_world
         else:
             # only return the prediction type in the goal frame
             pred_dict = {
@@ -288,39 +369,39 @@ class TAX3Dv2Module(L.LightningModule):
             num_samples: the number of samples to generate per batch element
         """
         # TODO: is there a way for this to incorporate some precision metric?
-        ground_truth = batch[self.label_key].to(self.device)
-        ground_truth_ref_frame = batch["goal_origin"].to(self.device).unsqueeze(-2)
+        ground_truth_point = batch["pc"].to(self.device) + batch["goal_origin"].to(self.device).unsqueeze(-2)
         seg = batch["seg"].to(self.device)
 
+        # put ground truth in world frame'
+        T_context2world = Transform3d(
+            matrix=batch["T_goal2world"].to(self.device)
+        )
+        ground_truth_point = T_context2world.transform_points(ground_truth_point)
+
         # re-shaping and expanding for winner-take-all
-        bs = ground_truth.shape[0]
-        ground_truth = expand_pcd(ground_truth, num_samples)
-        ground_truth_ref_frame = expand_pcd(ground_truth_ref_frame, num_samples)
+        bs = ground_truth_point.shape[0]
+        ground_truth_point = expand_pcd(ground_truth_point, num_samples)
         seg = expand_pcd(seg, num_samples)
 
         # generating diffusion predictions
         pred_dict = self.predict(
-            batch, num_samples, unflatten=False, progress=True, full_prediction=False
+            batch, num_samples, unflatten=False, progress=True, full_prediction=True
         )
-        pred = pred_dict[self.prediction_type]["pred"]
-        pred_ref_frame = pred_dict["ref_frame"]
-        
-        # updating prediction and ground truth with corresponding reference frames
-        pred = pred + pred_ref_frame
-        ground_truth = ground_truth + ground_truth_ref_frame
+        pred_point_world = pred_dict["point"]["pred_world"]
 
         # computing error metrics
         seg = seg == 0
-        rmse = flow_rmse(pred, ground_truth, mask=True, seg=seg).reshape(bs, num_samples)
-        pred = pred.reshape(bs, num_samples, -1, 3)
+        rmse = flow_rmse(pred_point_world, ground_truth_point, mask=True, seg=seg).reshape(bs, num_samples)
+        pred_point_world = pred_point_world.reshape(bs, num_samples, -1, 3)
+        # TODO: probably need to bugfix pred call here
 
         # computing winner-take-all metrics
         winner = torch.argmin(rmse, dim=-1)
         rmse_wta = rmse[torch.arange(bs), winner]
-        pred_wta = pred[torch.arange(bs), winner]
+        pred_point_world_wta = pred_point_world[torch.arange(bs), winner]
         return {
-            "pred": pred,
-            "pred_wta": pred_wta,
+            "pred_point_world": pred_point_world,
+            "pred_point_world_wta": pred_point_world_wta,
             "rmse": rmse,
             "rmse_wta": rmse_wta,
         }
@@ -336,17 +417,17 @@ class TAX3Dv2Module(L.LightningModule):
         """
         # pick a random sample in the batch to visualize
         viz_idx = np.random.randint(0, batch["pc"].shape[0])
-        pred_viz = pred_wta_dict["pred"][viz_idx, 0, :, :3]
-        pred_wta_viz = pred_wta_dict["pred_wta"][viz_idx, :, :3]
+        pred_action_viz = pred_wta_dict["pred_point_world"][viz_idx, 0, :, :3]
+        pred_action_wta_viz = pred_wta_dict["pred_point_world_wta"][viz_idx, :, :3]
         viz_args = self.get_viz_args(batch, viz_idx)
 
-        # getting predicted action point cloud
-        if self.prediction_type == "flow":
-            pred_action_viz = viz_args["pc_action_viz"] + pred_viz
-            pred_action_wta_viz = viz_args["pc_action_viz"] + pred_wta_viz
-        elif self.prediction_type == "point":
-            pred_action_viz = pred_viz
-            pred_action_wta_viz = pred_wta_viz
+        # # getting predicted action point cloud
+        # if self.prediction_type == "flow":
+        #     pred_action_viz = viz_args["pc_action_viz"] + pred_viz
+        #     pred_action_wta_viz = viz_args["pc_action_viz"] + pred_wta_viz
+        # elif self.prediction_type == "point":
+        #     pred_action_viz = pred_viz
+        #     pred_action_wta_viz = pred_wta_viz
 
         # logging predicted vs ground truth point cloud
         viz_args["pred_action_viz"] = pred_action_viz

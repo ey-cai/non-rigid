@@ -84,31 +84,6 @@ def main(cfg):
     # Model architecture is dataset-dependent, so we have a helper
     # function to create the model (while separating out relevant vals).
     network, model = create_model(cfg)
-
-    # import rpad.visualize_3d.plots as vpl
-    # import numpy as np
-    # item = datamodule.train_dataset[0]
-    # pc_action = item["pc_action"].numpy()
-    # pc_anchor = item["pc_anchor"].numpy()
-    # pc = item["pc"].numpy()
-    # #pc_scene = pc + item["goal_origin"].numpy()
-    # seg_action = np.ones(pc_action.shape[0]) * 0
-    # seg_anchor = np.ones(pc_anchor.shape[0]) * 1
-    # seg = np.ones(pc.shape[0]) * 2
-    # #seg_scene = np.ones(pc_scene.shape[0]) * 3
-    # fig = vpl.segmentation_fig(
-    #     np.concatenate([pc_action, pc_anchor, pc]),
-    #     np.concatenate([seg_action, seg_anchor, seg]).astype(int),
-    # )
-    # fig.show()
-    # breakpoint()
-    # datamodule.setup(stage="fit")
-    # cfg.training.num_training_steps = (
-    #     len(datamodule.train_dataloader()) * cfg.training.epochs
-    # )
-    # # updating the training sample size
-    # # cfg.training.training_sample_size = cfg.dataset.sample_size
-
     # TODO: compiling model doesn't work with lightning out of the box?
     # model = torch.compile(model)
 
